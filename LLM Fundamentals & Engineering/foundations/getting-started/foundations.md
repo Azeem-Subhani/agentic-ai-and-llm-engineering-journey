@@ -1072,7 +1072,7 @@ You have now walked through the core ideas behind LLMs.
 - The **context window** is the token limit for one request.
 - More tokens usually mean more cost.
 
-If you now go back to the original [notes.md](../../notes.md), the short points there should make much more sense.
+If you now go back to the original [notes.md](../../../notes.md), the short points there should make much more sense.
 
 ---
 

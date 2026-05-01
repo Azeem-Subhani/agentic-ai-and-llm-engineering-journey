@@ -15,10 +15,12 @@ The main material is a single guided lesson that turns short classroom notes int
 ## How to use this repository
 
 1. **Start here:** open the foundational course document:  
-   [`LLM Fundamentals & Engineering/foundations/foundations.md`](LLM%20Fundamentals%20%26%20Engineering/foundations/foundations.md)  
-   (If your file browser has trouble with the folder name, use your editor or Git to navigate into `LLM Fundamentals & Engineering`, then `foundations`, and open `foundations.md`.)
+   [`LLM Fundamentals & Engineering/foundations/getting-started/foundations.md`](LLM%20Fundamentals%20%26%20Engineering/foundations/getting-started/foundations.md)  
+   (If your file browser has trouble with the folder name, use your editor or Git to navigate into `LLM Fundamentals & Engineering`, then `foundations`, then `getting-started`, and open `foundations.md`.)
 
 2. **Optional context:** [`notes.md`](notes.md) is the original, shorter course log. The guided document builds on and answers the questions from those notes. You can keep `notes.md` as a quick checklist.
+
+3. **Week 2 (hands-on):** tool calling with a flight-agent demo — [`LLM Fundamentals & Engineering/foundations/tool-calling/readme.md`](LLM%20Fundamentals%20%26%20Engineering/foundations/tool-calling/readme.md) (start with `readme.md`, then run `tool_calling.py`).
 
 ## Optional setup (for hands-on parts later)
 

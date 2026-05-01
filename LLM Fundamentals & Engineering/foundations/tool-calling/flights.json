@@ -1,0 +1,56 @@
+[
+  {
+    "flight_number": "SKY101",
+    "origin": "San Francisco",
+    "destination": "Seattle",
+    "date": "2026-05-10",
+    "departure_time": "08:15",
+    "arrival_time": "10:45",
+    "price_usd": 189
+  },
+  {
+    "flight_number": "SKY102",
+    "origin": "San Francisco",
+    "destination": "Seattle",
+    "date": "2026-05-10",
+    "departure_time": "14:30",
+    "arrival_time": "17:00",
+    "price_usd": 149
+  },
+  {
+    "flight_number": "SKY201",
+    "origin": "San Francisco",
+    "destination": "New York",
+    "date": "2026-05-12",
+    "departure_time": "09:00",
+    "arrival_time": "17:30",
+    "price_usd": 412
+  },
+  {
+    "flight_number": "SKY202",
+    "origin": "New York",
+    "destination": "San Francisco",
+    "date": "2026-05-15",
+    "departure_time": "11:20",
+    "arrival_time": "14:50",
+    "price_usd": 398
+  },
+  {
+    "flight_number": "SKY310",
+    "origin": "Seattle",
+    "destination": "Chicago",
+    "date": "2026-05-11",
+    "departure_time": "07:45",
+    "arrival_time": "13:30",
+    "price_usd": 256
+  },
+  {
+    "flight_number": "SKY311",
+    "origin": "Seattle",
+    "destination": "Chicago",
+    "date": "2026-05-11",
+    "departure_time": "16:00",
+    "arrival_time": "21:40",
+    "price_usd": 221
+  }
+]
