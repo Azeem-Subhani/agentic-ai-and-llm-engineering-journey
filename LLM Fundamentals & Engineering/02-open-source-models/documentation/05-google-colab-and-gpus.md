@@ -2,94 +2,145 @@
 
 ## What this guide is about
 
-You will learn what **Google Colab** is, why your notebooks mention **Tesla T4** GPUs, how **free** tiers actually behave, and how to avoid surprise charges on **paid** GPUs. This guide also repeats the course’s **runtime troubleshooting** checklist verbatim—it is that important.
+This guide explains what Google Colab is, why GPUs matter, and how to avoid the most common setup problems in this module.
 
----
+If you are new to Colab, this page will save you time later.
 
-## Step 1 — What is Google Colab?
+## Step 1: What is Google Colab?
 
-**Google Colab** (“Colaboratory”) is a **website** that runs **Jupyter notebooks** on Google’s computers instead of only on your laptop.
+Google Colab is a website where you can run notebooks in the cloud.
 
-- A **notebook** mixes **markdown** explanations with **code cells** you run step by step.
-- A **runtime** is the temporary virtual machine behind the notebook (CPU or GPU, with some preinstalled Python packages).
+A notebook is a file that mixes:
 
-Colab is popular in courses because learners can start quickly without installing CUDA locally.
+- written notes
+- code cells
+- outputs
 
----
+This is useful because you can start learning and testing code without setting up everything on your own computer first.
 
-## Step 2 — What does “free GPU” really mean?
+## Step 2: What is a runtime?
 
-Your notes asked whether you can have a Colab with a **15 GB NVIDIA Tesla T4** “for free.”
+A runtime is the temporary computer behind your notebook.
 
-**Accurate picture:**
+It can be:
 
-- Free Colab **sometimes** offers **GPU** runtimes, commonly **T4** class on favorable days.
-- Google **does not guarantee** a GPU every session, every hour, or every account. Busy periods, account limits, or policy changes can yield **CPU-only** runtimes.
-- Even when you get a T4, **RAM and time limits** still apply; long jobs may be stopped.
+- CPU only
+- GPU enabled
 
-So: treat a free T4 as a **helpful possibility**, not a contract.
+The runtime is not permanent.
+It can reset, disconnect, or change.
+That is why code that worked an hour ago may stop working later if the runtime changes.
 
----
+## Step 3: What is a GPU?
 
-## Step 3 — Collaboration
+A GPU is a processor that is very good at large math tasks.
+Many model examples run much faster on a GPU than on a CPU.
 
-Colab notebooks can be stored in **Google Drive** or shared like other Google files. Multiple people can comment and run copies. That matches your note: it “allows you to collaborate.”
+In this module, you may see a Tesla T4 in Colab.
+That is a common cloud GPU for beginner model work.
 
----
+You can check whether Colab gave you a GPU with:
 
-## Step 4 — Connecting Colab to your Hugging Face account
+```python
+!nvidia-smi
+```
 
-You do **not** “merge accounts” in a special way. The standard pattern is:
+What this line means:
 
-1. Create a Hugging Face **access token**.
-2. Add it to Colab **Secrets** as `HF_TOKEN`.
-3. Call `login(...)` in the first cells of the notebook (see any Week 3 notebook).
+- In a notebook, `!` means "run this as a shell command instead of normal Python code."
+- `nvidia-smi` is an NVIDIA tool that shows GPU information.
+- If a GPU is active, this command prints details such as the GPU name and memory.
+- If no GPU is active, the output helps you see that too.
 
-That lets `from_pretrained` download gated models you have been approved for.
+Example output from the course:
 
----
+```text
+Tesla T4
+Success - Connected to a T4
+```
 
-## Step 5 — Paid GPUs (A100, etc.) and why “terminate” matters
+## Step 4: What does "free GPU" really mean?
 
-Some Colab plans let you pick **premium GPUs** (for example **A100**) for faster or larger workloads.
+Free Colab can sometimes give you a GPU, but it does not promise one every time.
 
-**Rule:** When you finish, **disconnect or terminate** the runtime so you do not pay for idle GPU time you are not using. Your class notes called this out explicitly—treat it as a billing hygiene habit, not optional trivia.
+That means:
 
----
+- one session may give you a GPU
+- another session may give you only a CPU
+- long sessions may be stopped
 
-## Step 6 — GPU obsolescence (from your notes)
+So it is best to think of free GPU access as a useful chance, not a fixed service.
 
-Consumer and datacenter GPUs evolve quickly. A card that is “hot” today may be surpassed next year. Buying hardware can lock you into a depreciation curve; renting cloud GPUs shifts that tradeoff to hourly cost and availability.
+## Step 5: How Colab helps learning
 
-This is context for career planning, not a reason to avoid learning GPUs—just a realistic note about **hardware churn**.
+Colab is popular in courses because it gives you:
 
----
+- quick startup
+- shared notebooks
+- cloud hardware
+- less local setup
 
-## Step 7 — The misleading `bitsandbytes` / CUDA error (copy this checklist)
+This is especially helpful when the course uses packages or GPU tools that are harder to install on a normal laptop.
 
-Your notebooks warn that this error is **often not about broken package versions**:
+## Step 6: How to connect Colab to Hugging Face
 
-> Runtime error: CUDA is required but not available for bitsandbytes…
+You do not connect the accounts in a special account-merging way.
+Instead, you use a token.
 
-**What usually happened:** Colab silently gave you a **CPU** runtime, or swapped your machine under load.
+The normal flow is:
 
-**Fix (follow in order):**
+1. create a Hugging Face token
+2. add it in Colab secrets as `HF_TOKEN`
+3. use `login(...)` in the notebook
 
-1. **Kernel menu → Disconnect and delete runtime**
-2. Reload the notebook; **Edit → Clear all outputs**
-3. Connect to a **new GPU** runtime (for example T4) using the top-right controls
-4. **View resources** and confirm a GPU is visible
-5. Rerun cells **from the top**, starting with `pip install` cells
+This allows the notebook to download models that your account can access.
 
-If you skip step 1, you can chase version numbers for an hour and never fix the true cause.
+## Step 7: Paid GPUs
 
----
+Some Colab plans offer stronger GPUs such as the A100.
+These are useful for larger or faster runs.
 
-## Step 8 — What you should remember
+But there is one important rule:
+disconnect or stop the runtime when you finish.
 
-- Colab = **hosted notebooks** + **temporary runtimes**.  
-- Free GPU access is **helpful but not guaranteed**.  
-- Premium GPUs need **explicit shutdown discipline**.  
-- The **bitsandbytes + CUDA** error is often a **runtime type** issue—use the checklist above.
+If you leave a paid GPU running in the background, you may keep paying for time you are not using.
 
-You are ready for the hands-on guides: start with [06-pipelines-and-tasks.md](06-pipelines-and-tasks.md).
+## Step 8: Hardware changes over time
+
+GPU hardware changes fast.
+A GPU that feels exciting today may feel normal next year.
+
+This does not mean learning GPUs is a bad idea.
+It only means buying hardware and renting hardware are different choices, and both have tradeoffs.
+
+## Step 9: The most common confusing error
+
+In Colab, a very common error looks like this:
+
+```text
+CUDA is required but not available for bitsandbytes
+```
+
+This often makes people think the package versions are broken.
+But in many cases, the real problem is simpler:
+Colab gave you a CPU runtime instead of a GPU runtime.
+
+## Step 10: What to do when CUDA disappears
+
+Try this in order:
+
+1. disconnect and delete the runtime
+2. reload the notebook
+3. clear the outputs
+4. reconnect to a GPU runtime
+5. run the notebook again from the top
+
+This is usually better than changing package versions immediately.
+
+## What to remember
+
+- Colab is a cloud notebook service.
+- A runtime is the temporary machine behind the notebook.
+- A GPU makes many model tasks much faster.
+- Free GPU access is useful, but not guaranteed.
+- If CUDA suddenly disappears, check the runtime before blaming the code.

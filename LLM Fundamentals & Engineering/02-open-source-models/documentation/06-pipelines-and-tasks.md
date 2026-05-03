@@ -1,426 +1,459 @@
-# Pipelines and Common NLP Tasks
+# Pipelines and Tasks
 
-## How to use this guide
+## What this guide is about
 
-Open the notebook [`../week_3_day_2_pipelines.ipynb`](../week_3_day_2_pipelines.ipynb) in **Google Colab** (upload or open from Drive) or in **Jupyter** on your machine. This document walks **every cell in order**: markdown first (ideas), then code (line by line).
+This guide explains one of the easiest ways to use open models in Python:
+the Hugging Face `pipeline` function.
 
-**Prerequisites:** Read [05-google-colab-and-gpus.md](05-google-colab-and-gpus.md) for GPU runtime setup and the `HF_TOKEN` secret.
+The goal is not only to show examples.
+The goal is to help you understand what each example does and why it works.
 
----
+## Step 1: What is a pipeline?
 
-## Part A — Concepts before code
+A pipeline is a ready-made function for a common AI task.
 
-### What is a Hugging Face `pipeline`?
+For example, a pipeline can be built for:
 
-A **`pipeline`** is a **high-level Python function** returned by `transformers.pipeline(...)`. It bundles:
+- sentiment analysis
+- translation
+- summarization
+- text generation
 
-1. Choosing (or defaulting) a **model** for a named **task** (for example “sentiment-analysis”).
-2. Loading a **tokenizer** when needed.
-3. Moving tensors to a **device** like `"cuda"`.
-4. Applying sensible **pre- and post-processing** so you pass plain strings and get plain Python objects back.
+The word `pipeline` here means:
+"a helper that loads the right model and gives you a simple way to use it."
 
-Your notes called this the “higher level API” compared to manually combining `AutoTokenizer` + `AutoModel*` (we do that in Day 4—see [08-models-quantization-and-loading.md](08-models-quantization-and-loading.md)).
-
-### What is inference?
-
-**Inference** means using a model **after** it was trained, to produce outputs on new inputs. The notebook contrasts this with **training** (updating weights). All `pipeline` examples here are inference-only.
-
----
-
-## Part B — Cell-by-cell walkthrough
-
-Notebook: `week_3_day_2_pipelines.ipynb` — **23 cells**, indices **0–22**. (Cell 22 is an empty code cell in the export you have.)
-
-### Cell 0 — Markdown — Welcome
-
-**Goal:** Introduce the two-level API idea and the syntax pattern:
-
-1. `my_pipeline = pipeline("task_name")`
-2. `result = my_pipeline(input)`
-
-**Vocabulary:**
-
-- **Task:** a string name like `"sentiment-analysis"` that tells Hugging Face which kind of model to load.
-
----
-
-### Cell 1 — Markdown — Colab pro-tips
-
-**Goal:** Set expectations about warnings and the misleading **bitsandbytes / CUDA** error.
-
-**Takeaway:** If that error appears mid-notebook, treat it as a **runtime lost GPU** problem first. Full checklist: [05-google-colab-and-gpus.md](05-google-colab-and-gpus.md#step-7--the-misleading-bitsandbytes--cuda-error-copy-this-checklist).
-
----
-
-### Cell 2 — Markdown — Training vs inference
-
-**Goal:** Define **training** (update weights; includes **fine-tuning** if starting from a pretrained model) vs **inference** (fixed weights).
-
-**Why it matters:** Pipelines are for inference. The notebook says later weeks will train models with lower-level APIs.
-
----
-
-### Cell 3 — Code — Pin library versions
+You create it once:
 
 ```python
-!pip install -q --upgrade datasets==3.6.0 transformers==4.57.6
+my_pipeline = pipeline("task-name")
 ```
 
-**Line by line:**
+What this line means:
 
-- `!` — shell escape in Jupyter/Colab: run a terminal command from the notebook.
-- `pip install` — Python package installer.
-- `-q` — quieter logs.
-- `--upgrade` — if an older version is installed, replace it.
-- `datasets==3.6.0` — exact version of the `datasets` library (reproducibility).
-- `transformers==4.57.6` — exact version of `transformers` used when the course was recorded.
+- `pipeline(...)` is a function from the `transformers` library.
+- `"task-name"` is the task you want, such as `"sentiment-analysis"` or `"text-generation"`.
+- `my_pipeline` is just a variable name. It stores the ready-to-use pipeline object.
 
-**Why at the top:** If the runtime restarts, you must rerun installs before imports.
-
-**Note:** Image generation later uses `diffusers`. If a later cell fails with `ModuleNotFoundError: diffusers`, add a cell `!pip install -q diffusers` (version pinning optional). Colab sometimes preinstalls it; environments differ.
-
----
-
-### Cell 4 — Code — Check GPU (`nvidia-smi`)
+Then you use it:
 
 ```python
-gpu_info = !nvidia-smi
-gpu_info = '\n'.join(gpu_info)
-if gpu_info.find('failed') >= 0:
-  print('Not connected to a GPU')
-else:
-  print(gpu_info)
-  if gpu_info.find('Tesla T4') >= 0:
-    print("Success - Connected to a T4")
-  else:
-    print("NOT CONNECTED TO A T4")
+result = my_pipeline("your input")
 ```
 
-**Line by line:**
+What this line means:
 
-- `gpu_info = !nvidia-smi` — Colab “magic”: run the `nvidia-smi` system command and capture its text lines into `gpu_info` (a special list-like object depending on IPython version; joining is defensive).
-- `'\n'.join(gpu_info)` — one multiline string for easy substring search.
-- `find('failed')` — crude detection if the command did not run as expected.
-- `find('Tesla T4')` — course checks specifically for **T4**; other GPUs (L4, A100) still work for many cells but your printout may say “NOT CONNECTED TO A T4” even though CUDA is fine.
+- `my_pipeline(...)` calls the pipeline like a normal Python function.
+- `"your input"` is the text, image, or other input you want to send in.
+- `result` stores the output so you can inspect it or print it later.
 
-**Expected output:** A table showing GPU name, memory, driver version, plus the success line if a T4 is present.
+## Step 2: Basic setup
 
----
-
-### Cell 5 — Code — Imports
+Before using pipelines, you usually install packages and log in to Hugging Face.
 
 ```python
-import torch
+!pip install -q --upgrade datasets==3.6.0 transformers==4.57.6 diffusers
+
 from google.colab import userdata
 from huggingface_hub import login
 from transformers import pipeline
-from diffusers import DiffusionPipeline
-from datasets import load_dataset
-import soundfile as sf
-from IPython.display import Audio
-```
 
-**Line by line:**
-
-- `torch` — PyTorch; used later for dtypes/devices in diffusion and audio cells.
-- `userdata` — **Colab-only**: reads **Secrets** like `HF_TOKEN`. In local Jupyter, this import fails—use environment variables instead.
-- `login` — authenticates your session to the Hugging Face Hub.
-- `pipeline` — the high-level Transformers API for NLP/audio tasks.
-- `DiffusionPipeline` — imported here; the image cell actually uses `AutoPipelineForText2Image` (imported inside that cell). `DiffusionPipeline` is a generic entrypoint in `diffusers`; harmless if unused, or historical import.
-- `load_dataset` — loads the speaker embedding dataset in the TTS section.
-- `soundfile` — reads/writes audio arrays to disk if needed (import present for ecosystem compatibility; the shown TTS path may not write files directly).
-- `Audio` — IPython helper to **play** audio in the notebook output.
-
----
-
-### Cell 6 — Markdown — Hugging Face account
-
-**Goal:** Ensure every learner has a Hub account, a **write-capable** token, and Colab secret access toggled on.
-
----
-
-### Cell 7 — Code — Log in to the Hub
-
-```python
-hf_token = userdata.get('HF_TOKEN')
-if hf_token and hf_token.startswith("hf_"):
-  print("HF key looks good so far")
-else:
-  print("HF key is not set - please click the key in the left sidebar")
+hf_token = userdata.get("HF_TOKEN")
 login(hf_token, add_to_git_credential=True)
 ```
 
-**Line by line:**
+Before reading the lines, here are the key names:
 
-- `userdata.get('HF_TOKEN')` — fetch secret by name; `None` if missing.
-- `startswith("hf_")` — Hugging Face user tokens conventionally start with `hf_` (not a cryptographic guarantee, just a quick sanity check).
-- `login(hf_token, add_to_git_credential=True)` — stores credentials for this session so model downloads work; `add_to_git_credential` also tries to configure git credential helper (mainly relevant if you clone from Hub with git).
+- `pip` installs Python packages
+- `userdata` reads saved secrets in Colab
+- `login` connects your notebook to Hugging Face
+- `pipeline` is the helper used in the rest of this guide
 
-**Failure modes:** Forgot to toggle secret visibility; token without write scope; expired token.
+Line by line:
 
----
+- `!pip install ...` runs a shell command inside the notebook.
+- `datasets==3.6.0` installs one fixed version of the `datasets` library.
+- `transformers==4.57.6` installs one fixed version of the `transformers` library.
+- `diffusers` installs the library used later for image-generation pipelines.
+- `-q` means quiet mode, so the output is shorter.
+- `--upgrade` tells `pip` to update the package if an older version is already installed.
+- `from google.colab import userdata` imports the Colab helper for reading secrets.
+- `from huggingface_hub import login` imports the login function from Hugging Face.
+- `from transformers import pipeline` imports the main helper used in this guide.
+- `hf_token = userdata.get("HF_TOKEN")` reads the secret called `HF_TOKEN` and stores it in the variable `hf_token`.
+- `login(hf_token, add_to_git_credential=True)` signs your notebook in to Hugging Face.
+- `add_to_git_credential=True` tells the tool to store the token in a way that can help later authenticated downloads in the same environment.
 
-### Cell 8 — Markdown — How `pipeline` works
+If you plan to run image or audio examples, a GPU helps a lot.
 
-**Key API:**
+## Step 3: Sentiment analysis
+
+Sentiment analysis means deciding whether text sounds positive, negative, or neutral.
 
 ```python
-my_pipeline = pipeline(task, model=xx, device=xx)
-```
-
-- **`task`:** string like `"ner"`.
-- **`model=`** optional: Hub model id; if omitted, a default model is chosen.
-- **`device=`** `"cuda"` for NVIDIA GPU, `"mps"` for Apple Silicon GPU, `"cpu"` otherwise.
-
-Then call `my_pipeline(input)` repeatedly.
-
----
-
-### Cell 9 — Code — Sentiment analysis (default model)
-
-```python
-my_simple_sentiment_analyzer = pipeline("sentiment-analysis", device="cuda")
-result = my_simple_sentiment_analyzer("I'm super excited to be on the way to LLM mastery!")
+sentiment = pipeline("sentiment-analysis", device="cuda")
+result = sentiment("I'm super excited to be on the way to LLM mastery!")
 print(result)
 ```
 
-**Line by line:**
+Before reading the lines:
 
-- `pipeline("sentiment-analysis", device="cuda")` — build a callable object; first run may **download weights**.
-- The string argument is the **review text**.
-- `print(result)` — typically a **list of dicts** like `[{'label': 'POSITIVE', 'score': 0.99...}]` (exact numbers vary by model).
+- `pipeline` creates the task-specific helper
+- `device="cuda"` tells the code to use an NVIDIA GPU
 
-**Interpretation:** `label` is the predicted class; `score` is a confidence-like probability for that class under the model’s softmax.
+Line by line:
 
----
+- `sentiment = pipeline("sentiment-analysis", device="cuda")` creates a sentiment-analysis pipeline and stores it in the variable `sentiment`.
+- `"sentiment-analysis"` is the task name.
+- `device="cuda"` means "run this on the GPU instead of the CPU."
+- `result = sentiment("...")` sends one sentence into the pipeline.
+- `print(result)` prints the output.
 
-### Cell 10 — Code — Second sentiment string
+Example output from the course:
 
-Same pipeline object, new string—shows the API is reusable.
+```text
+[{'label': 'POSITIVE', 'score': 0.9993460774421692}]
+```
 
-**Expected shape:** Still a list of one dict; label may flip toward negative phrasing.
+What the output means:
 
----
+- `label` is the predicted class
+- `score` is the model's confidence-like value for that class
 
-### Cell 11 — Code — Sentiment with an explicit multilingual model
+## Step 4: A second sentiment model
+
+Sometimes you want to choose the exact model instead of using a default one.
 
 ```python
-better_sentiment = pipeline("sentiment-analysis", model="nlptown/bert-base-multilingual-uncased-sentiment", device="cuda")
+better_sentiment = pipeline(
+    "sentiment-analysis",
+    model="nlptown/bert-base-multilingual-uncased-sentiment",
+    device="cuda",
+)
 result = better_sentiment("I should be more excited to be on the way to LLM mastery!!")
 print(result)
 ```
 
-**Line by line:**
+Before reading the lines:
 
-- `model="nlptown/bert-base-multilingual-uncased-sentiment"` — full Hub id `author/model`.
-- This model outputs **star-like labels** (1–5) in many course runs; your exact label strings appear in `print(result)`.
+- `model="..."` is the model ID on Hugging Face
+- a model ID tells Hugging Face exactly which saved model to load
 
-**Why specify a model?** Defaults change over time; a pinned id makes tutorials reproducible.
+Line by line:
 
----
+- `better_sentiment = pipeline(...)` creates another sentiment pipeline.
+- `"sentiment-analysis"` still tells the code which task you want.
+- `model="nlptown/bert-base-multilingual-uncased-sentiment"` asks for one specific multilingual model instead of a default model.
+- `device="cuda"` again asks to use the GPU.
+- `result = better_sentiment("...")` runs the text through this new pipeline.
+- `print(result)` shows the output.
 
-### Cell 12 — Code — Named Entity Recognition (NER)
+Example output from the course:
+
+```text
+[{'label': '3 stars', 'score': 0.39448031783103943}]
+```
+
+This shows why model choice matters:
+different models can use different label styles.
+
+## Step 5: Named entity recognition
+
+Named entity recognition, or NER, finds important names in text.
+These names can be people, companies, places, and other categories.
 
 ```python
 ner = pipeline("ner", device="cuda")
-result = ner("AI Engineers are learning about the amazing pipelines from HuggingFace in Google Colab from Ed Donner")
+result = ner(
+    "AI Engineers are learning about the amazing pipelines from HuggingFace in Google Colab from Ed Donner"
+)
 for entity in result:
-  print(entity)
+    print(entity)
 ```
 
-**Line by line:**
+Before reading the lines:
 
-- `"ner"` — task tag for token-classification style entity spans.
-- `result` — list of dicts with keys such as `entity`, `score`, `word`, `start`, `end` (exact schema can vary slightly by model version).
-- The `for` loop prints **one entity per line**.
+- `ner` is just the variable name
+- `"ner"` is the task name for named entity recognition
 
-**How to read an entity dict:** `entity` often looks like `B-PER` (begin person) or `B-ORG` (begin organization) in IOB tagging schemes.
+Line by line:
 
----
+- `ner = pipeline("ner", device="cuda")` creates a NER pipeline.
+- `result = ner(...)` sends one sentence into the NER pipeline.
+- The long string is the sentence the model will inspect.
+- `for entity in result:` loops through each found entity one by one.
+- `print(entity)` prints each entity dictionary.
 
-### Cell 13 — Code — Extractive Question Answering
+Short sample from the saved output:
+
+```text
+{'entity': 'I-ORG', 'word': 'AI', 'start': 0, 'end': 2}
+{'entity': 'I-MISC', 'word': 'Google', 'start': 74, 'end': 80}
+{'entity': 'I-PER', 'word': 'Ed', 'start': 92, 'end': 94}
+```
+
+What some output fields mean:
+
+- `entity` is the predicted category
+- `word` is the text piece the model found
+- `start` and `end` show where that text appears in the sentence
+
+## Step 6: Question answering
+
+This task finds an answer inside a given text.
 
 ```python
-question="What are Hugging Face pipelines?"
-context="Pipelines are a high level API for inference of LLMs with common tasks"
+question = "What are Hugging Face pipelines?"
+context = "Pipelines are a high level API for inference of LLMs with common tasks"
 
-question_answerer = pipeline("question-answering", device="cuda")
-result = question_answerer(question=question, context=context)
+qa = pipeline("question-answering", device="cuda")
+result = qa(question=question, context=context)
 print(result)
 ```
 
-**Line by line:**
+Before reading the lines:
 
-- **Extractive QA** means the answer must be a **span copied from the context**, not free-written.
-- `question_answerer(question=..., context=...)` — keyword arguments are required; order is easy to confuse.
-- `result` — typically includes `score`, `start`, `end`, and `answer` text.
+- `question` is what you ask
+- `context` is the text that contains the answer
+- `qa` is a short variable name for the question-answering pipeline
 
----
+Line by line:
 
-### Cell 14 — Code — Summarization
+- `question = "..."` stores the question.
+- `context = "..."` stores the text the model is allowed to search.
+- `qa = pipeline("question-answering", device="cuda")` creates a question-answering pipeline.
+- `result = qa(question=question, context=context)` runs the task.
+- `question=question` tells the pipeline which text is the question.
+- `context=context` tells the pipeline which text contains the answer.
+- `print(result)` prints the answer object.
+
+Example output from the course:
+
+```text
+{'score': 0.24576981365680695, 'start': 35, 'end': 70, 'answer': 'inference of LLMs with common tasks'}
+```
+
+Here, `answer` is the selected span from the context.
+
+## Step 7: Summarization
+
+Summarization means turning a longer text into a shorter version.
 
 ```python
 summarizer = pipeline("summarization", device="cuda")
-text = """ ... long paragraph ... """
+text = """
+The Hugging Face transformers library is an incredibly versatile and powerful tool for natural language processing.
+It allows users to perform a wide range of tasks such as text classification, named entity recognition, and question answering.
+It is widely used by the open-source data science community.
+"""
+
 summary = summarizer(text, max_length=50, min_length=25, do_sample=False)
-print(summary[0]['summary_text'])
+print(summary[0]["summary_text"])
 ```
 
-**Key arguments:**
+Before reading the lines:
 
-- `max_length` / `min_length` — soft bounds on output length in **tokens** (tokenizer-dependent), not strict word counts.
-- `do_sample=False` — greedy or beam-like deterministic decoding (depends on inner defaults); avoids randomness for demos.
+- `summarizer` is the pipeline variable
+- `max_length` and `min_length` control output size
+- `do_sample=False` asks for a more predictable result
 
-**Output shape:** `summary` is a list; element `0` has key `'summary_text'`.
+Line by line:
 
----
+- `summarizer = pipeline("summarization", device="cuda")` creates a summarization pipeline.
+- `text = """..."""` stores a multi-line text string.
+- `summary = summarizer(...)` runs the summarizer on that text.
+- `max_length=50` tells the model not to make the summary too long.
+- `min_length=25` asks the model not to make it too short.
+- `do_sample=False` reduces randomness and makes the result more stable.
+- `print(summary[0]["summary_text"])` prints the summary text from the first result item.
 
-### Cell 15 — Code — English → French translation (default model)
+Example output from the course:
+
+```text
+The Hugging Face transformers library is an incredibly versatile and powerful tool for natural language processing . It allows users to perform a wide range of tasks such as text classification, named entity recognition, and question answering .
+```
+
+## Step 8: Translation
+
+Translation changes text from one language to another.
+
+French example:
 
 ```python
 translator = pipeline("translation_en_to_fr", device="cuda")
-result = translator("The Data Scientists were truly amazed by the power and simplicity of the HuggingFace pipeline API.")
-print(result[0]['translation_text'])
+result = translator(
+    "The Data Scientists were truly amazed by the power and simplicity of the HuggingFace pipeline API."
+)
+print(result[0]["translation_text"])
 ```
 
-**Shape:** `result` is a list of dicts; French text lives under `translation_text`.
+Line by line:
 
----
+- `translator = pipeline("translation_en_to_fr", device="cuda")` creates a translation pipeline from English to French.
+- `"translation_en_to_fr"` is the task name.
+- `result = translator("...")` sends one English sentence to the pipeline.
+- `print(result[0]["translation_text"])` prints the translated text from the first result item.
 
-### Cell 16 — Code — English → Spanish with explicit model
+Example output from the course:
+
+```text
+Les Data Scientists ont été vraiment étonnés par la puissance et la simplicité de l'API du pipeline HuggingFace.
+```
+
+Spanish example with a fixed model:
 
 ```python
-translator = pipeline("translation_en_to_es", model="Helsinki-NLP/opus-mt-en-es", device="cuda")
-result = translator("The Data Scientists were truly amazed by the power and simplicity of the HuggingFace pipeline API.")
-print(result[0]['translation_text'])
+translator = pipeline(
+    "translation_en_to_es",
+    model="Helsinki-NLP/opus-mt-en-es",
+    device="cuda",
+)
+result = translator(
+    "The Data Scientists were truly amazed by the power and simplicity of the HuggingFace pipeline API."
+)
+print(result[0]["translation_text"])
 ```
 
-**Why show Helsinki-NLP?** Demonstrates how to pick a specific **Marian / OPUS** style model from the Hub’s translation collection.
+Line by line:
 
----
+- `translator = pipeline(...)` creates another translation pipeline.
+- `"translation_en_to_es"` means English to Spanish.
+- `model="Helsinki-NLP/opus-mt-en-es"` picks one exact translation model.
+- `device="cuda"` asks for GPU use again.
+- `result = translator("...")` runs the translation.
+- `print(result[0]["translation_text"])` prints the Spanish output.
 
-### Cell 17 — Code — Zero-shot classification
+Example output from the course:
+
+```text
+Los científicos de datos estaban verdaderamente sorprendidos por el poder y la simplicidad de la API de tuberías HuggingFace.
+```
+
+## Step 9: Other useful text tasks
+
+You can use the same pipeline pattern for many other tasks.
 
 ```python
 classifier = pipeline("zero-shot-classification", device="cuda")
-result = classifier("Hugging Face's Transformers library is amazing!", candidate_labels=["technology", "sports", "politics"])
-print(result)
-```
-
-**Concept:** The model scores how well the text matches **each candidate label** without task-specific fine-tuning on your labels.
-
-**Typical output keys:** `labels` (ranked list), `scores` (parallel list of probabilities).
-
----
-
-### Cell 18 — Code — Text generation
-
-```python
 generator = pipeline("text-generation", device="cuda")
-result = generator("If there's one thing I want you to remember about using HuggingFace pipelines, it's")
-print(result[0]['generated_text'])
 ```
 
-**Behavior:** Continues the prompt. The returned string usually **includes the original prompt** plus new tokens; that is why the key is `generated_text` for many GPT-style pipelines.
+Line by line:
 
----
+- `classifier = pipeline("zero-shot-classification", device="cuda")` creates a pipeline that can score text against labels you provide.
+- `"zero-shot-classification"` means the model can work with your labels even if it was not trained only on those exact labels.
+- `generator = pipeline("text-generation", device="cuda")` creates a text-generation pipeline.
+- `"text-generation"` means the model will continue text from a prompt.
 
-### Cell 19 — Code — Text-to-image (SDXL Turbo)
+Typical results:
+
+- zero-shot classification returns labels and scores
+- text generation returns the prompt plus the new generated text
+
+## Step 10: Text-to-image
+
+This example uses a different library called `diffusers`.
+`AutoPipelineForText2Image` is a class that loads the correct image-generation pipeline for the model you choose.
 
 ```python
 from IPython.display import display
 from diffusers import AutoPipelineForText2Image
 import torch
 
-pipe = AutoPipelineForText2Image.from_pretrained("stabilityai/sdxl-turbo", torch_dtype=torch.float16, variant="fp16")
+pipe = AutoPipelineForText2Image.from_pretrained(
+    "stabilityai/sdxl-turbo",
+    torch_dtype=torch.float16,
+    variant="fp16",
+)
 pipe.to("cuda")
-prompt = "A class of students learning AI engineering in a vibrant pop-art style"
-image = pipe(prompt=prompt, num_inference_steps=4, guidance_scale=0.0).images[0]
+
+image = pipe(
+    prompt="A class of students learning AI engineering in a vibrant pop-art style",
+    num_inference_steps=4,
+    guidance_scale=0.0,
+).images[0]
+
 display(image)
 ```
 
-**Line by line:**
+Line by line:
 
-- `AutoPipelineForText2Image` — factory that picks a concrete pipeline class for SDXL.
-- `from_pretrained("stabilityai/sdxl-turbo", ...)` — download/load weights for that Hub id.
-- `torch_dtype=torch.float16` — compute many activations in **16-bit floating point** to save memory; requires GPU support.
-- `variant="fp16"` — some models ship multiple weight formats; this picks the fp16 checkpoint files when present.
-- `pipe.to("cuda")` — move the pipeline’s PyTorch modules to GPU.
-- `num_inference_steps=4` — SDXL Turbo is designed for **very few** denoising steps (fast, lower fidelity than slow samplers).
-- `guidance_scale=0.0` — for this turbo recipe, classifier-free guidance is effectively disabled (model-specific behavior).
-- `.images[0]` — PIL image object.
-- `display(image)` — renders inline in Colab.
+- `from IPython.display import display` imports the helper that can show images inside the notebook.
+- `from diffusers import AutoPipelineForText2Image` imports the class used for text-to-image pipelines.
+- `import torch` imports PyTorch.
+- `pipe = AutoPipelineForText2Image.from_pretrained(...)` loads a saved image model from Hugging Face.
+- `from_pretrained(...)` is a Hugging Face method that downloads and prepares saved model files.
+- `"stabilityai/sdxl-turbo"` is the model ID.
+- `torch_dtype=torch.float16` asks the model to use a smaller 16-bit number format to save memory.
+- `variant="fp16"` asks for the fp16 version of the model files when available.
+- `pipe.to("cuda")` moves the pipeline to the GPU.
+- `image = pipe(...)` runs the pipeline.
+- `prompt="..."` is the text description of the image you want.
+- `num_inference_steps=4` tells the model how many denoising steps to use.
+- `guidance_scale=0.0` controls how strongly the image follows the prompt.
+- `.images[0]` takes the first image from the result.
+- `display(image)` shows the image in the notebook.
 
-**VRAM warning:** SDXL class models can be tight on **16 GB** GPUs; if you OOM, try a smaller image model or CPU offloading (advanced; not in this cell).
+Output:
 
----
+```text
+An image is shown inside Colab.
+```
 
-### Cell 20 — Code — Text-to-speech (SpeechT5)
+## Step 11: Text-to-speech
+
+This example uses a speech model.
+`load_dataset` is a helper from the `datasets` library.
+It downloads a dataset in a standard way.
 
 ```python
-from transformers import pipeline
 from datasets import load_dataset
-import soundfile as sf
 import torch
 from IPython.display import Audio
 
-synthesiser = pipeline("text-to-speech", "microsoft/speecht5_tts", device='cuda')
-embeddings_dataset = load_dataset("matthijs/cmu-arctic-xvectors", split="validation", trust_remote_code=True)
+synthesiser = pipeline("text-to-speech", "microsoft/speecht5_tts", device="cuda")
+embeddings_dataset = load_dataset(
+    "matthijs/cmu-arctic-xvectors",
+    split="validation",
+    trust_remote_code=True,
+)
 speaker_embedding = torch.tensor(embeddings_dataset[7306]["xvector"]).unsqueeze(0)
-speech = synthesiser("Hi to an artificial intelligence engineer, on the way to mastery!", forward_params={"speaker_embeddings": speaker_embedding})
+speech = synthesiser(
+    "Hi to an artificial intelligence engineer, on the way to mastery!",
+    forward_params={"speaker_embeddings": speaker_embedding},
+)
 
 Audio(speech["audio"], rate=speech["sampling_rate"])
 ```
 
-**Line by line:**
+Line by line:
 
-- `pipeline("text-to-speech", "microsoft/speecht5_tts", ...)` — loads SpeechT5 TTS weights.
-- `load_dataset(..., trust_remote_code=True)` — some datasets execute a loading script from the Hub; this flag acknowledges that behavior.
-- `embeddings_dataset[7306]` — picks one **fixed** speaker embedding row for reproducibility.
-- `torch.tensor(...).unsqueeze(0)` — shape `(1, dim)` batch dimension expected by the model.
-- `forward_params={"speaker_embeddings": ...}` — passes extra tensors into the model forward pass (voice timbre control).
-- `speech["audio"]` — waveform array; `sampling_rate` tells the player how many samples per second.
+- `from datasets import load_dataset` imports the dataset-loading function.
+- `import torch` imports PyTorch.
+- `from IPython.display import Audio` imports the helper that can show an audio player in the notebook.
+- `synthesiser = pipeline("text-to-speech", "microsoft/speecht5_tts", device="cuda")` creates a text-to-speech pipeline.
+- `"text-to-speech"` is the task name.
+- `"microsoft/speecht5_tts"` is the exact model ID.
+- `device="cuda"` asks for GPU use.
+- `embeddings_dataset = load_dataset(...)` downloads a dataset of speaker embeddings.
+- `"matthijs/cmu-arctic-xvectors"` is the dataset ID.
+- `split="validation"` selects the validation part of that dataset.
+- `trust_remote_code=True` allows dataset-specific loading code from the source. Use this only when you trust the dataset source.
+- `speaker_embedding = torch.tensor(...).unsqueeze(0)` turns one speaker vector into a PyTorch tensor and adds a batch dimension.
+- `embeddings_dataset[7306]["xvector"]` selects one example speaker embedding from the dataset.
+- `speech = synthesiser(...)` creates speech audio from the text.
+- `forward_params={"speaker_embeddings": speaker_embedding}` sends the chosen voice embedding into the model.
+- `Audio(speech["audio"], rate=speech["sampling_rate"])` shows an audio player using the waveform and sample rate returned by the model.
 
-**Expected output:** playable audio widget in Colab.
+Output:
 
----
+```text
+An audio player is shown inside Colab.
+```
 
-### Cell 21 — Markdown — Where to find the full pipeline task lists
+## What to remember
 
-**Transformers pipelines:** [Hugging Face docs — Pipelines](https://huggingface.co/docs/transformers/main_classes/pipelines)
-
-**Diffusers pipelines overview:** [Diffusers API overview](https://huggingface.co/docs/diffusers/en/api/pipelines/overview)
-
----
-
-### Cell 22 — Code — Empty
-
-No code—placeholder or accidental empty cell. Safe to ignore.
-
----
-
-## Part C — Recap checklist
-
-After running the notebook top to bottom on a healthy GPU runtime, you should be able to:
-
-- Explain **inference** vs **training**.
-- Create a `pipeline` for at least three distinct **task strings**.
-- Interpret **NER** dicts, **QA** span answers, and **zero-shot** label lists.
-- Describe at a high level what **SDXL Turbo** and **SpeechT5 TTS** cells are doing (even if you do not memorize every argument).
-
----
-
-## Part D — Common errors
-
-| Symptom | Likely cause | First fix |
-|---------|--------------|-----------|
-| `CUDA ... bitsandbytes` | CPU runtime or runtime swap | [05](05-google-colab-and-gpus.md) checklist |
-| `401/403` on download | Missing/invalid token or gated model | Fix `HF_TOKEN`; accept model license |
-| `ModuleNotFoundError: diffusers` | Package not installed | `pip install diffusers` |
-| OOM on SDXL | Not enough GPU memory | Smaller model / fewer concurrent pipelines |
-
----
-
-## Next guide
-
-[07-tokens-and-tokenizers.md](07-tokens-and-tokenizers.md) explains how text becomes token IDs—the missing piece before Day 4’s `generate`.
+- A pipeline is a simple way to run a common model task.
+- The task name tells Hugging Face what kind of pipeline to build.
+- A model ID lets you choose one exact model instead of a default one.
+- The same pattern works for text, images, and audio.
+- Understanding the parameters helps you move from copying code to really using it.

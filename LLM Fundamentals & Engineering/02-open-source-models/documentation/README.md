@@ -1,101 +1,104 @@
-# Open Source Models — Course Documentation
+# Open Source Models
 
-This folder turns the raw class notes ([`../notes.md`](../notes.md)) into structured, beginner-friendly guides. Each guide builds ideas in order and defines new words before relying on them.
+This folder is a beginner-friendly guide to open models.
+It is written in simple English and meant to be read in order.
 
-## Who this is for
+The earlier version of this module had raw notes and notebooks.
+That source material is now folded into these guides.
+So the useful code, sample outputs, and key ideas are all here in the documentation.
 
-You can read these documents **without** having built machine learning systems before. When we use Python or cloud tools, we say what they are for and what you should click or type.
+## Who This Is For
 
-## How this folder relates to the notebooks
+This module is for readers who are new to:
 
-The course uses four Jupyter notebooks (exported from Google Colab). They live next to this folder:
+- open models
+- Hugging Face
+- Colab
+- tokenizers
+- running models in Python
 
-| Notebook | Topic |
-|----------|--------|
-| [`../week_3_day_2_pipelines.ipynb`](../week_3_day_2_pipelines.ipynb) | High-level Hugging Face `pipeline` API: NLP tasks, image, and speech |
-| [`../Week_3_Day_3_tokenizers.ipynb`](../Week_3_Day_3_tokenizers.ipynb) | Tokenizers, token IDs, chat templates, comparing models |
-| [`../Week_3_Day_4_models.ipynb`](../Week_3_Day_4_models.ipynb) | Loading causal LMs, 4-bit quantization, `generate`, streaming |
-| [`../Week_3_Day_5_Meeting_Minutes_product.ipynb`](../Week_3_Day_5_Meeting_Minutes_product.ipynb) | Audio → transcript → meeting minutes with Whisper or OpenAI |
+You do not need a strong machine learning background before you start.
 
-**Suggested order:** Read guides `01`–`05` first (concepts), then `06` while you run Day 2, `07` with Day 3, `08`–`09` with Day 4, `10` with Day 5. Finish with `11` for optional extension topics.
-
-## Reading order (all guides)
+## Best Reading Order
 
 1. [01-what-are-open-source-models.md](01-what-are-open-source-models.md)
 2. [02-pytorch-and-tensorflow.md](02-pytorch-and-tensorflow.md)
 3. [03-hugging-face-ecosystem.md](03-hugging-face-ecosystem.md)
 4. [04-ollama-vs-hugging-face-workflows.md](04-ollama-vs-hugging-face-workflows.md)
 5. [05-google-colab-and-gpus.md](05-google-colab-and-gpus.md)
-6. [06-pipelines-and-tasks.md](06-pipelines-and-tasks.md) — walkthrough: `week_3_day_2_pipelines.ipynb`
-7. [07-tokens-and-tokenizers.md](07-tokens-and-tokenizers.md) — walkthrough: `Week_3_Day_3_tokenizers.ipynb`
-8. [08-models-quantization-and-loading.md](08-models-quantization-and-loading.md) — walkthrough: `Week_3_Day_4_models.ipynb`
+6. [06-pipelines-and-tasks.md](06-pipelines-and-tasks.md)
+7. [07-tokens-and-tokenizers.md](07-tokens-and-tokenizers.md)
+8. [08-models-quantization-and-loading.md](08-models-quantization-and-loading.md)
 9. [09-inside-llama-decoder-architecture.md](09-inside-llama-decoder-architecture.md)
-10. [10-meeting-minutes-audio-product.md](10-meeting-minutes-audio-product.md) — walkthrough: `Week_3_Day_5_Meeting_Minutes_product.ipynb`
-11. [11-generative-media-stable-diffusion-and-beyond.md](11-generative-media-stable-diffusion-and-beyond.md) — extension (no matching notebook in this repo)
+10. [10-meeting-minutes-audio-product.md](10-meeting-minutes-audio-product.md)
+11. [11-generative-media-stable-diffusion-and-beyond.md](11-generative-media-stable-diffusion-and-beyond.md)
 
-## Running the notebooks safely
+## How The Guides Work
 
-### Hugging Face token (required for most cells)
+The first five guides explain the basic ideas.
+They answer questions like:
 
-1. Create a free account at [https://huggingface.co](https://huggingface.co).
-2. **Settings → Access Tokens** → create a token. The course notebooks ask for **read/write** access (select the **Write** scope when creating the token).
-3. In Google Colab: click the **key** icon in the left sidebar → add a secret named `HF_TOKEN` with your token value → enable notebook access to that secret.
+- What is an open model?
+- What is Hugging Face?
+- What is the difference between Ollama and Hugging Face?
+- Why does Colab matter?
 
-### OpenAI key (only for Day 5, Option 2)
+The later guides show practical examples.
+They answer questions like:
 
-Add a Colab secret `OPENAI_API_KEY` if you run the OpenAI transcription path in the meeting-minutes notebook.
+- How do I use a pipeline?
+- What is a tokenizer?
+- How do I load a model directly?
+- How can I turn audio into meeting minutes?
 
-### Gated models (Llama, Gemma, …)
+This order matters because later guides use ideas from earlier ones.
 
-Some model pages on the Hub require you to **accept a license** on the model card *before* `from_pretrained` works. Visit the model URL in the notebook, click to agree, wait until the page shows you have access, then rerun the download cells.
+## What You Need
 
-### GPU runtime and the “CUDA / bitsandbytes” confusion
+For most examples, you need a free [Hugging Face](https://huggingface.co) account.
+In Google Colab, add your token as a secret called `HF_TOKEN`.
 
-The notebooks include a **pro-tip**: if you see an error like “CUDA is required but not available for bitsandbytes,” it often means Colab **reassigned you to a CPU-only runtime**, not that your package versions are wrong. Fix:
+For the optional OpenAI transcription path in guide `10`, add:
 
-1. **Kernel → Disconnect and delete runtime**
-2. Reload the notebook, **Edit → Clear all outputs**
-3. Connect to a **GPU** runtime again (e.g. T4) and confirm under **View resources**
-4. Rerun from the top, starting with `pip install` cells
+- `OPENAI_API_KEY`
 
-### Paid accelerators (A100, etc.)
+For image generation, Whisper, and larger text models, a GPU is strongly recommended.
 
-If you start a **paid** high-end GPU session, **terminate or disconnect** when you are done so you are not billed for idle time.
+## Common Terms You Will Meet
 
-### Secrets and git
+| Term | Simple meaning |
+|---|---|
+| model | A trained program that learned patterns from data |
+| weights | The learned numbers inside the model |
+| inference | Using a trained model to get an output |
+| token | A small piece of text the model reads as one unit |
+| tokenizer | The tool that turns text into token IDs |
+| pipeline | A ready-made Hugging Face function for a common task |
+| quantization | Loading weights in a smaller format to save memory |
+| gated model | A model that needs license approval before download |
 
-Never commit API keys or tokens into git. The notebooks read secrets from the Colab environment, not from hard-coded strings in files you push to GitHub.
+If a word is new, the related guide explains it before using it in detail.
 
-## Glossary (quick reference)
+## Common Problems
 
-| Term | One-line meaning |
-|------|------------------|
-| **Inference** | Using a model that is already trained to produce outputs on new inputs (not updating its weights). |
-| **Training** | Showing the model data and updating its internal weights so it improves at a task. |
-| **Token** | A small piece of text (often a subword) that the model sees as one symbol from a fixed vocabulary. |
-| **Tokenizer** | Code that splits text into tokens and maps each token to an integer **token ID**. |
-| **Pipeline (HF)** | A high-level function that loads a sensible default model for a named task and runs inference. |
-| **Hub** | Hugging Face’s website and storage where models, datasets, and spaces are shared. |
-| **Quantization** | Storing or computing weights with fewer bits than full precision to save memory. |
-| **Causal language model** | A model that predicts the next token given all previous tokens (typical “GPT-style” text model). |
-| **ASR** | Automatic Speech Recognition: audio → text (e.g. Whisper). |
-| **Gated model** | A Hub model that requires accepting a license before download works. |
-| **Context window** | Maximum number of tokens (prompt + completion) a model can attend to at once—long transcripts may need chunking. |
-| **bitsandbytes** | Library used with Hugging Face to load some models in 4-bit quantized form on GPU. |
+| Problem | First thing to check |
+|---|---|
+| `403` when loading a model | Open the model page and accept the license |
+| `401` or token error | Check `HF_TOKEN` in Colab secrets |
+| CUDA is missing | Reconnect to a GPU runtime in Colab |
+| Out of memory | Use a smaller model or use quantization |
+| Audio file not found | Check your Google Drive path carefully |
 
-For fuller definitions, see guides `01`–`09` and walkthroughs `06`–`10`.
+## Goal Of This Module
 
-## Common mistakes (quick triage)
+By the end, you should be able to:
 
-| Symptom | First thing to check |
-|---------|----------------------|
-| `CUDA` / `bitsandbytes` errors right after things worked | Colab switched you to **CPU** — use the disconnect/runtime checklist in [05-google-colab-and-gpus.md](05-google-colab-and-gpus.md). |
-| `403` when calling `from_pretrained` | **Gated model:** accept license on the model card; confirm `HF_TOKEN` has access. |
-| `401` / invalid token | Colab secret missing, typo, or expired Hub token. |
-| OpenAI errors on Day 5 | `OPENAI_API_KEY` secret; billing; model name still valid in OpenAI docs. |
-| `FileNotFoundError` for audio | Google Drive path must match `MyDrive/llms/denver_extract.mp3` (or your chosen path). |
-| Out of memory on image or Llama cells | Smaller model id, fewer `max_new_tokens`, enable 4-bit quant, or restart runtime after `del` + `empty_cache`. |
+- explain what open models are
+- understand the main Hugging Face tools
+- use pipelines for text, image, and audio tasks
+- understand what tokens and tokenizers do
+- load a chat model with more control
+- follow a simple end-to-end AI product example
 
-## Original class notes
-
-The unedited bullet list the class started from is still at [`../notes.md`](../notes.md).
+The aim is not only to finish reading the pages.
+The aim is to understand the ideas well enough that you can try the examples with confidence.

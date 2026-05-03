@@ -1,369 +1,348 @@
 # Tokens and Tokenizers
 
-## How to use this guide
+## What this guide is about
 
-Walk alongside [`../Week_3_Day_3_tokenizers.ipynb`](../Week_3_Day_3_tokenizers.ipynb). This file explains **each cell in order** (markdown then code), defines **token**, **tokenizer**, **vocabulary**, **special tokens**, and shows how **chat templates** turn Python message lists into text the model was trained on.
+This guide explains how text becomes numbers before a model can use it.
 
-**Prerequisites:** [05-google-colab-and-gpus.md](05-google-colab-and-gpus.md) (Colab + `HF_TOKEN`), [06-pipelines-and-tasks.md](06-pipelines-and-tasks.md) (inference vocabulary).
+That process is very important because models do not read raw text directly.
+They read token IDs.
 
----
+This page also explains the code used to load and use tokenizers in simple steps.
 
-## Part A — Concepts in plain language
+## Step 1: What is a token?
 
-### What is a token?
+A token is a small piece of text that a model reads as one unit.
 
-A **token** is one symbol from a fixed list the model can read. Tokens are usually **subwords**: common words may be one token; rare words may split into several pieces.
+A token can be:
 
-### What is a tokenizer?
+- a whole word
+- part of a word
+- punctuation
+- a special marker
 
-A **tokenizer** is code that:
+That is why one sentence can have:
 
-1. **Encodes** text → list of integers (**token IDs**).
-2. **Decodes** token IDs → text (not always identical to the original if whitespace was normalized).
+- a character count
+- a word count
+- a token count
 
-### What is a vocabulary?
+and all three can be different.
 
-The **vocabulary** is the set of all tokens the tokenizer knows, each mapped to an integer ID.
+## Step 2: What is a tokenizer?
 
-### What is a special token?
+A tokenizer is the tool that changes text into token IDs.
 
-A **special token** is a reserved symbol (with its own ID) that does not represent normal language text. Examples (exact strings depend on model family):
+It usually does two jobs:
 
-- Beginning / end of sequence markers  
-- Padding markers when batching unequal lengths  
-- Role markers for chat formats (`<|user|>`, `<|assistant|>`, etc. on some models)
+1. split text into tokens
+2. turn those tokens into numbers
 
-They **signal structure** to the model: where the prompt starts, where the assistant answer should begin, etc.
+It can also do the reverse and turn token IDs back into text.
 
----
+## Step 3: What is a vocabulary?
 
-## Part B — Cell-by-cell walkthrough
+A vocabulary is the list of tokens a tokenizer knows.
+Each token in the vocabulary has an ID.
 
-Notebook: `Week_3_Day_3_tokenizers.ipynb` — **26 cells** (indices **0–25**).
+If the tokenizer does not know a whole word, it may split that word into smaller pieces that do exist in the vocabulary.
 
-### Cell 0 — Markdown — Title
+## Step 4: What is a special token?
 
-States the session goal: explore tokenizers; can run on CPU or locally.
+A special token is a token with a special meaning.
 
----
+Examples include tokens that mark:
 
-### Cell 1 — Markdown — Colab pro-tips
+- the start of text
+- the end of text
+- the start of a user message
+- the start of an assistant reply
 
-Same bitsandbytes/CUDA runtime swap guidance as other notebooks—see [05](05-google-colab-and-gpus.md).
+These tokens help the model understand structure, not only words.
 
----
+## Step 5: Basic setup
 
-### Cell 2 — Code — Install pinned versions
+Before the code, here are the important names:
+
+- `AutoTokenizer` is a Hugging Face class that picks the correct tokenizer class for the model you name
+- `from_pretrained(...)` is a common Hugging Face method that downloads saved files and prepares them for use
 
 ```python
 !pip install -q --upgrade datasets==3.6.0 transformers==4.57.6
-```
 
-Matches Day 2 pipelines notebook pinning for reproducibility.
-
----
-
-### Cell 3 — Code — Imports
-
-```python
-from google.colab import userdata
-from huggingface_hub import login
 from transformers import AutoTokenizer
+
+tokenizer = AutoTokenizer.from_pretrained(
+    "meta-llama/Meta-Llama-3.1-8B",
+    trust_remote_code=True,
+)
 ```
 
-- **`AutoTokenizer`** — a factory class: given a model id string, it downloads the correct tokenizer class + vocabulary files (`tokenizer.json`, merges, etc.).
+Line by line:
 
----
+- `!pip install -q --upgrade datasets==3.6.0 transformers==4.57.6` installs the package versions used in this guide.
+- `from transformers import AutoTokenizer` imports the `AutoTokenizer` class from the `transformers` library.
+- `tokenizer = AutoTokenizer.from_pretrained(...)` loads a tokenizer and stores it in the variable `tokenizer`.
+- `"meta-llama/Meta-Llama-3.1-8B"` is the model ID on Hugging Face. It tells the code which tokenizer files to load.
+- `trust_remote_code=True` allows model-specific code from the source to run if the tokenizer needs it. Use this only when you trust the model source.
 
-### Cell 4 — Markdown — Hugging Face sign-in instructions
+Some models require you to accept a license on Hugging Face first.
 
-Walks through token creation with **write** permissions and Colab secret `HF_TOKEN`.
+## Step 6: Encode text
 
----
-
-### Cell 5 — Code — Login + optional GPU check
-
-```python
-hf_token = userdata.get('HF_TOKEN')
-if hf_token and hf_token.startswith("hf_"):
-  print("HF key looks good so far")
-else:
-  print("HF key is not set - please click the key in the left sidebar")
-login(hf_token, add_to_git_credential=True)
-
-gpu_info = !nvidia-smi
-gpu_info = '\n'.join(gpu_info)
-...
-```
-
-**Why `nvidia-smi` in a tokenizer lab?** Harmless sanity check; tokenizer cells themselves do not require GPU.
-
----
-
-### Cell 6 — Markdown — Gated Llama access
-
-Explains Meta’s **license acceptance** on the Hub for Llama weights. Follow the linked model card before `from_pretrained` calls.
-
----
-
-### Cell 7 — Code — Load Llama 3.1 base tokenizer
-
-```python
-tokenizer = AutoTokenizer.from_pretrained('meta-llama/Meta-Llama-3.1-8B', trust_remote_code=True)
-```
-
-**Line by line:**
-
-- `'meta-llama/Meta-Llama-3.1-8B'` — Hub id for the **base** (non-Instruct) Llama 3.1 8B tokenizer files (tokenizer often shared across related checkpoints).
-- `trust_remote_code=True` — allows execution of custom code shipped with some tokenizers/models on the Hub when needed.
-
-**403 errors:** Accept license; confirm token; see troubleshooting links in the notebook markdown.
-
----
-
-### Cell 8 — Code — `encode`
+The method `encode(...)` turns text into token IDs.
 
 ```python
 text = "I am excited to show Tokenizers in action to my LLM engineers"
 tokens = tokenizer.encode(text)
-tokens
+print(tokens)
 ```
 
-**Line by line:**
+Line by line:
 
-- `encode(text)` — returns a Python **list of ints** (token IDs), typically including **special** start/end tokens depending on tokenizer defaults.
-- The last line `tokens` in a notebook displays the list.
+- `text = "..."` stores the sentence in a variable called `text`.
+- `tokens = tokenizer.encode(text)` asks the tokenizer to turn that sentence into token IDs.
+- `encode(...)` is a tokenizer method for text-to-IDs conversion.
+- `print(tokens)` prints the list of token IDs.
 
-**Expected pattern:** More tokens than words, because subword splitting.
+Example output shape:
 
----
+```text
+[... a list of integer token IDs ...]
+```
 
-### Cell 9 — Code — Count characters, words, tokens
+The exact numbers change from one model to another.
+
+## Step 7: Decode text
+
+The method `decode(...)` turns token IDs back into text.
+
+```python
+print(tokenizer.decode(tokens))
+```
+
+Line by line:
+
+- `tokenizer.decode(tokens)` asks the tokenizer to turn the list of token IDs back into text.
+- `tokens` is the list created in the earlier step.
+- `print(...)` shows the result.
+
+Expected result:
+
+```text
+I am excited to show Tokenizers in action to my LLM engineers
+```
+
+## Step 8: Tokens are not words
 
 ```python
 character_count = len(text)
-word_count = len(text.split(' '))
-token_count = len(tokens)
-print(f"There are {character_count} characters, {word_count} words and {token_count} tokens")
+word_count = len(text.split(" "))
+print(character_count, word_count)
 ```
 
-**Teaching point:** **Tokens are not words.** Pricing and context windows are measured in tokens.
+Before reading the lines:
 
----
+- `len(...)` returns the size of something
+- `split(" ")` splits the sentence at spaces
 
-### Cell 10 — Code — `decode` full sequence
+Line by line:
 
-```python
-tokenizer.decode(tokens)
+- `character_count = len(text)` counts how many characters are in the full string.
+- `word_count = len(text.split(" "))` splits the sentence into pieces at spaces and then counts them.
+- `print(character_count, word_count)` prints the two counts.
+
+For this sentence:
+
+```text
+61 12
 ```
 
-**Round-trip:** Usually returns text equivalent to the original aside from spacing normalization.
+The token count will be different again.
+This is why token limits and word counts are not the same thing.
 
----
-
-### Cell 11 — Code — `batch_decode` on a flat list
+## Step 9: Look at vocabulary information
 
 ```python
-tokenizer.batch_decode(tokens)
+print(tokenizer.get_added_vocab())
+print(len(tokenizer.vocab))
 ```
 
-**Caution:** `batch_decode` expects a **list of lists** (one sequence per row). Passing a flat list of ints can behave unexpectedly depending on version; the notebook uses it as a teaching moment—observe the output shape.
+Before reading the lines:
 
-**Mental model:** Prefer `decode(tokens)` for a single sequence; use `batch_decode([[1,2,3],[4,5]])` for batches.
+- `get_added_vocab()` shows tokens added on top of the base vocabulary
+- `tokenizer.vocab` is the vocabulary object
 
----
+Line by line:
 
-### Cell 12 — Code — Added vocabulary
+- `print(tokenizer.get_added_vocab())` prints the extra tokens the tokenizer added.
+- `print(len(tokenizer.vocab))` prints the size of the vocabulary.
 
-```python
-# tokenizer.vocab
-tokenizer.get_added_vocab()
-```
+This shows:
 
-- `get_added_vocab()` — mapping of **extra** tokens (often special tokens) added beyond the base merge table.
+- extra tokens added by the tokenizer
+- the size of the vocabulary
 
----
+## Step 10: Instruct models and chat templates
 
-### Cell 13 — Code — Vocabulary size
+Some models are trained for chat.
+These are often called instruct models.
 
-```python
-len(tokenizer.vocab)
-```
+A chat model usually expects the prompt in a special format.
+That format is often built with a chat template.
 
-- Reports how many token entries the tokenizer’s vocabulary object exposes (exact internals differ between “slow” and “fast” tokenizers, but the number is useful intuition).
+Before the code, here are the important names:
 
----
-
-### Cell 14 — Markdown — Instruct models
-
-**Key idea:** **Instruct** checkpoints are fine-tuned for **chat-style** prompts. They expect a structured string (system/user/assistant), not raw freeform only.
-
----
-
-### Cell 15 — Code — Load Instruct tokenizer
+- `apply_chat_template(...)` is a tokenizer method that turns a message list into the prompt style the model expects
+- `tokenize=False` means "return text, not token IDs yet"
+- `add_generation_prompt=True` means "add the marker that tells the model the assistant reply should start now"
 
 ```python
-tokenizer = AutoTokenizer.from_pretrained('meta-llama/Meta-Llama-3.1-8B-Instruct', trust_remote_code=True)
-```
+tokenizer = AutoTokenizer.from_pretrained(
+    "meta-llama/Meta-Llama-3.1-8B-Instruct",
+    trust_remote_code=True,
+)
 
-Note different Hub string than cell 7—**Instruct** tokenizer includes chat template metadata.
-
----
-
-### Cell 16 — Code — `apply_chat_template` (string output)
-
-```python
 messages = [
     {"role": "system", "content": "You are a helpful assistant"},
-    {"role": "user", "content": "Tell a light-hearted joke for a room of Data Scientists"}
-  ]
+    {"role": "user", "content": "Tell a light-hearted joke for a room of Data Scientists"},
+]
 
-prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+prompt = tokenizer.apply_chat_template(
+    messages,
+    tokenize=False,
+    add_generation_prompt=True,
+)
+
 print(prompt)
 ```
 
-**Line by line:**
+Line by line:
 
-- `messages` — Python objects convenient for **application code** (like OpenAI’s API shape).
-- `apply_chat_template(...)` — converts those roles into **one string** using the model’s training-time conventions.
-- `tokenize=False` — return **text**, not token IDs.
-- `add_generation_prompt=True` — append markers that cue the model to **begin assistant generation** (exact string depends on model family).
+- `tokenizer = AutoTokenizer.from_pretrained(...)` loads the tokenizer for the instruct version of the model.
+- `"meta-llama/Meta-Llama-3.1-8B-Instruct"` is the model ID for the instruct model.
+- `messages = [...]` creates a list of chat messages.
+- Each message is a dictionary with a `role` and `content`.
+- `"system"` is usually used for high-level instructions.
+- `"user"` is usually used for the user's input.
+- `prompt = tokenizer.apply_chat_template(...)` converts the message list into one formatted prompt string.
+- `messages` is the message list that will be formatted.
+- `tokenize=False` asks for plain text output instead of token IDs.
+- `add_generation_prompt=True` adds the assistant-start marker so the model knows it should answer next.
+- `print(prompt)` prints the full formatted prompt.
 
-**Why this matters:** The neural net still only sees **token IDs** after you encode this prompt string.
+Example output idea:
 
----
+```text
+... special markers for system ...
+You are a helpful assistant
+... special markers for user ...
+Tell a light-hearted joke for a room of Data Scientists
+... special markers for assistant ...
+```
 
-### Cell 17 — Markdown — “Aha” moment
+The exact markers depend on the model family.
 
-States the core fact: LLMs consume **sequences of integers**; messages are converted → tagged text → tokens → IDs. Probability over **next token ID**.
+## Step 11: Why chat templates matter
 
-Read this section slowly—it bridges application APIs and math.
+Your Python app may store messages as dictionaries.
+The model does not read dictionaries.
 
----
+The flow is:
 
-### Cell 18 — Markdown — Upcoming models
+1. messages
+2. one formatted text prompt
+3. tokens
+4. token IDs
 
-Introduces Phi 4, DeepSeek 3.1, Qwen Coder examples below.
+That is the bridge between app code and model input.
 
----
+## Step 12: Different models tokenize differently
 
-### Cell 19 — Code — Model id constants
+The same sentence can become different token IDs with different models.
 
 ```python
 PHI4 = "microsoft/Phi-4-mini-instruct"
 DEEPSEEK = "deepseek-ai/DeepSeek-V3.1"
-QWEN_CODER = "Qwen/Qwen2.5-Coder-7B-Instruct"
-```
 
-These are **Hub ids**; some may be large or gated—downloads can take time and disk.
-
----
-
-### Cell 20 — Code — Compare encode + batch_decode across Llama vs Phi
-
-```python
 phi4_tokenizer = AutoTokenizer.from_pretrained(PHI4)
-
-text = "I am curiously excited to show Hugging Face Tokenizers in action to my LLM engineers"
-print("Llama:")
-tokens = tokenizer.encode(text)
-print(tokens)
-print(tokenizer.batch_decode(tokens))
-print("\nPhi 4:")
-tokens = phi4_tokenizer.encode(text)
-print(tokens)
-print(phi4_tokenizer.batch_decode(tokens))
-```
-
-**Teaching point:** Same English string becomes **different integer sequences** because vocabularies and pre-tokenizers differ.
-
----
-
-### Cell 21 — Code — Compare chat templates (Llama vs Phi)
-
-```python
-print("Llama:")
-print(tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True))
-print("\nPhi 4:")
-print(phi4_tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True))
-```
-
-**Teaching point:** Same logical `messages` list becomes **different prompt strings**—each model family’s recipe.
-
----
-
-### Cell 22 — Code — Add DeepSeek tokenizer + numeric comparison
-
-```python
 deepseek_tokenizer = AutoTokenizer.from_pretrained(DEEPSEEK)
 
-text = "I am curiously excited to show Hugging Face Tokenizers in action to my LLM engineers"
 print(tokenizer.encode(text))
-print()
 print(phi4_tokenizer.encode(text))
-print()
 print(deepseek_tokenizer.encode(text))
 ```
 
-Shows three ID sequences side by side.
+Line by line:
 
----
+- `PHI4 = "microsoft/Phi-4-mini-instruct"` stores the model ID for a Phi tokenizer.
+- `DEEPSEEK = "deepseek-ai/DeepSeek-V3.1"` stores the model ID for a DeepSeek tokenizer.
+- `phi4_tokenizer = AutoTokenizer.from_pretrained(PHI4)` loads the Phi tokenizer.
+- `deepseek_tokenizer = AutoTokenizer.from_pretrained(DEEPSEEK)` loads the DeepSeek tokenizer.
+- `print(tokenizer.encode(text))` prints token IDs from the current tokenizer.
+- `print(phi4_tokenizer.encode(text))` prints token IDs from the Phi tokenizer.
+- `print(deepseek_tokenizer.encode(text))` prints token IDs from the DeepSeek tokenizer.
 
-### Cell 23 — Code — Chat templates for three models
+Expected result:
 
-Prints `apply_chat_template` strings for Llama, Phi, DeepSeek with the same `messages`.
-
----
-
-### Cell 24 — Code — Qwen Coder tokenization of Python code
-
-```python
-qwen_tokenizer = AutoTokenizer.from_pretrained(QWEN_CODER)
-code = """
-def hello_world(person):
-  print("Hello", person)
-"""
-tokens = qwen_tokenizer.encode(code)
-for token in tokens:
-  print(f"{token}={qwen_tokenizer.decode(token)}")
+```text
+Three different lists of token IDs
 ```
 
-**Line by line:**
+This is normal because different model families often use different vocabularies and token rules.
 
-- The loop prints each **integer id** and a **decode** attempt for that id alone.
-- **Note:** `decode([token_id])` is the usual robust pattern for per-id pieces; if `decode(token)` misbehaves on some versions, mentally substitute decoding a one-element list.
+## Step 13: Different chat templates too
 
-**Teaching point:** Code tokenizers often split on meaningful programmer substrings (indentation, operators).
+The same `messages` list can also become different prompt text across models.
 
----
+```python
+print(tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True))
+print(phi4_tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True))
+```
 
-### Cell 25 — Markdown — Empty / end
+Line by line:
 
-No additional content in export—end of notebook.
+- The first line prints the chat template output for the current tokenizer.
+- The second line prints the chat template output for the Phi tokenizer.
+- `tokenize=False` again asks for plain text.
+- `add_generation_prompt=True` again asks to add the assistant-start marker.
 
----
+This is why chat code that works for one model may need a different template for another.
 
-## Part C — Recap checklist
+## Step 14: Tokenizing code
 
-You should now be able to:
+Some models are trained especially for code.
 
-- Define **token**, **tokenizer**, **vocabulary**, **special token** without hand-waving.
-- Predict that **word count ≠ token count** for English text.
-- Explain why `apply_chat_template` exists and what `add_generation_prompt=True` is for.
-- Read a printed list of token IDs as “the real input” to the LM.
+```python
+QWEN_CODER = "Qwen/Qwen2.5-Coder-7B-Instruct"
+qwen_tokenizer = AutoTokenizer.from_pretrained(QWEN_CODER)
 
----
+code = '''
+def hello_world(person):
+  print("Hello", person)
+'''
 
-## Part D — Common errors
+tokens = qwen_tokenizer.encode(code)
+for token in tokens:
+    print(token, qwen_tokenizer.decode([token]))
+```
 
-| Symptom | Likely cause | Fix |
-|---------|--------------|-----|
-| 403 on Llama | License not accepted | Visit model card, accept terms |
-| `HF_TOKEN` invalid | Secret off or typo | Toggle Colab secret access |
-| Huge downloads | Large tokenizer bundles | Wait, or pick smaller demo model ids for practice |
+Line by line:
 
----
+- `QWEN_CODER = "Qwen/Qwen2.5-Coder-7B-Instruct"` stores the model ID for a code-focused tokenizer.
+- `qwen_tokenizer = AutoTokenizer.from_pretrained(QWEN_CODER)` loads that tokenizer.
+- `code = '''...'''` stores a short Python function in a multi-line string.
+- `tokens = qwen_tokenizer.encode(code)` converts the code into token IDs.
+- `for token in tokens:` loops through the token IDs one by one.
+- `qwen_tokenizer.decode([token])` decodes one token ID at a time so you can see what text piece it maps to.
+- `print(token, ...)` prints the token ID and its decoded text piece together.
 
-## Next guide
+This helps you see how code models split indentation, names, brackets, and symbols.
 
-[08-models-quantization-and-loading.md](08-models-quantization-and-loading.md) loads full **causal LMs** with optional **4-bit quantization**.
+## What to remember
+
+- Models read token IDs, not raw text.
+- `AutoTokenizer` loads the correct tokenizer for a model ID.
+- `from_pretrained(...)` loads saved tokenizer files.
+- `encode(...)` turns text into token IDs.
+- `decode(...)` turns token IDs back into text.
+- Chat templates are important because instruct models expect a special prompt format.

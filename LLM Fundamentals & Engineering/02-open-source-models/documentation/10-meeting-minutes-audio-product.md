@@ -1,151 +1,133 @@
-# Meeting Minutes from Audio (End-to-End Product)
+# Meeting Minutes from Audio
 
-## How to use this guide
+## What this guide is about
 
-Walk through [`../Week_3_Day_5_Meeting_Minutes_product.ipynb`](../Week_3_Day_5_Meeting_Minutes_product.ipynb) with this page open.
+This guide shows a small end-to-end AI product:
 
-**Prerequisites:** [06-pipelines-and-tasks.md](06-pipelines-and-tasks.md) (pipelines, ASR task), [08-models-quantization-and-loading.md](08-models-quantization-and-loading.md) (Llama + 4-bit + `generate`).
+1. take audio
+2. turn it into text
+3. turn that text into meeting minutes
 
-**Secrets:** You need **`HF_TOKEN`** for Hugging Face paths. For **Option 2** transcription you also need **`OPENAI_API_KEY`** in Colab secrets.
+The code uses two kinds of models:
 
----
+- a speech-to-text model
+- a chat model for writing the final report
 
-## Part A — What this notebook builds
+The main goal of this page is to explain not only what the code does, but also why each part is used.
 
-**Goal:** Turn a **recording of speech** into **written meeting minutes** (summary, discussion, takeaways, action items).
+## Step 1: What are we building?
 
-**Stages:**
+This mini-project turns speech into meeting minutes.
 
-1. **STEP 1 — Transcribe audio** to plain text (two alternative implementations).  
-2. **STEP 2 — Analyze** the transcript with an **instruction-tuned Llama** model to emit structured markdown minutes.
+The flow is:
 
-This is a realistic pattern for “AI product” assignments: **specialized model for audio** + **general LLM for writing**.
+1. audio
+2. transcription
+3. summary and action items
 
----
+Transcription means changing speech into text.
 
-## Part B — Cell-by-cell walkthrough
+## Step 2: Install and import
 
-Notebook: `Week_3_Day_5_Meeting_Minutes_product.ipynb` — **23 cells** (indices **0–22**). Cell 22 is empty.
+Before the code, here are the important names:
 
-### Cell 0 — Markdown — Dataset context
-
-Explains the **Denver City Council** audio clip, gives a Google Drive download link, and points to the **MeetingBank** Hugging Face dataset for the curious.
-
-**Your job before code runs:** obtain an `.mp3` file (provided extract or your own).
-
----
-
-### Cell 1 — Markdown — Colab runtime pro-tip
-
-Same CUDA/bitsandbytes false alarm guidance—[05](05-google-colab-and-gpus.md).
-
----
-
-### Cell 2 — Code — Install packages
+- `OpenAI` is the Python client class for OpenAI API calls
+- `drive` is the Colab helper for Google Drive
+- `userdata` reads saved secrets in Colab
+- `pipeline` is the Hugging Face helper for common tasks
+- `Markdown` and `display` show nicely formatted output in the notebook
 
 ```python
-!pip install -q --upgrade bitsandbytes accelerate transformers==4.57.6
-```
+!pip install -q --upgrade bitsandbytes accelerate transformers==4.57.6 openai
 
-**Note:** The next cell imports `openai`. If that import fails on a **fresh** runtime, insert another install line first: `!pip install -q openai` (many Colab images already include it).
-
----
-
-### Cell 3 — Code — Imports
-
-```python
-import os
-import requests
-from IPython.display import Markdown, display, update_display
 from openai import OpenAI
-from google.colab import drive
+from google.colab import drive, userdata
 from huggingface_hub import login
-from google.colab import userdata
-from transformers import AutoTokenizer, AutoModelForCausalLM, TextStreamer, BitsAndBytesConfig
+from transformers import (
+    AutoTokenizer,
+    AutoModelForCausalLM,
+    BitsAndBytesConfig,
+    TextStreamer,
+    pipeline,
+)
+from IPython.display import Markdown, display
 import torch
 ```
 
-**Line by line:**
+Line by line:
 
-- `Markdown`, `display` — render markdown nicely in Colab output cells.
-- `OpenAI` — client class for OpenAI’s HTTP APIs (used for transcription option).
-- `drive` — mount Google Drive to read `denver_extract.mp3`.
-- `userdata` — read Colab secrets.
-- `login` — authenticate to Hugging Face Hub.
-- `transformers` / `torch` — same Llama generation stack as Day 4.
+- `!pip install ...` installs the packages needed for the model-loading steps in this project.
+- `bitsandbytes` helps with 4-bit model loading.
+- `accelerate` helps with device placement for larger models.
+- `transformers==4.57.6` installs the `transformers` library version used in these examples.
+- `openai` installs the OpenAI Python package used in the paid transcription option.
+- `from openai import OpenAI` imports the OpenAI client class.
+- `from google.colab import drive, userdata` imports the Drive helper and the Colab secrets helper.
+- `from huggingface_hub import login` imports the Hugging Face login function.
+- `from transformers import (...)` imports the Hugging Face classes used later.
+- `AutoTokenizer` loads the tokenizer for a model.
+- `AutoModelForCausalLM` loads a chat-style text model.
+- `BitsAndBytesConfig` stores quantization settings.
+- `TextStreamer` prints generated tokens as they appear.
+- `pipeline` creates a ready-made task helper such as speech recognition.
+- `from IPython.display import Markdown, display` imports tools for showing Markdown nicely in the notebook.
+- `import torch` imports PyTorch.
 
-**Unused import note:** `os` and `requests` may be unused in the minimal path—harmless leftovers or reserved for extensions.
+You need:
 
----
+- `HF_TOKEN` for Hugging Face
+- `OPENAI_API_KEY` only if you use the OpenAI transcription option
 
-### Cell 4 — Code — Model id constant
+Log in before loading gated models:
 
 ```python
-LLAMA = "meta-llama/Llama-3.2-3B-Instruct"
+login(userdata.get("HF_TOKEN"), add_to_git_credential=True)
 ```
 
-**3B instruct** checkpoint—requires Meta license acceptance on the Hub; larger than Day 4’s 1B demo, so VRAM pressure is higher.
+Line by line:
 
----
+- `userdata.get("HF_TOKEN")` reads the Hugging Face token from Colab secrets.
+- `login(...)` signs the notebook in to Hugging Face.
+- `add_to_git_credential=True` helps later authenticated downloads in the same environment.
 
-### Cell 5 — Code — Mount Drive + audio path
+## Step 3: Connect Google Drive
 
 ```python
 drive.mount("/content/drive")
 audio_filename = "/content/drive/MyDrive/llms/denver_extract.mp3"
-```
-
-**Line by line:**
-
-- `drive.mount(...)` — opens an OAuth popup the first time; grants this notebook access to your Drive files.
-- `audio_filename` — **must exist** at that path. Create folder `llms` under `MyDrive` and place the mp3 as instructed.
-
----
-
-### Cell 6 — Markdown — Download reminder
-
-Repeats the Drive link for `denver_extract.mp3`.
-
----
-
-### Cell 7 — Code — Hugging Face login + open audio file
-
-```python
-hf_token = userdata.get('HF_TOKEN')
-login(hf_token, add_to_git_credential=True)
-
 audio_file = open(audio_filename, "rb")
 ```
 
-**Line by line:**
+Before reading the lines:
 
-- `open(..., "rb")` — binary read mode; APIs expect a **file-like object** with bytes for upload-style calls.
+- `drive.mount(...)` connects your notebook to your Google Drive
+- `open(..., "rb")` opens a file in binary read mode
 
-**Important:** The file handle `audio_file` is read later by OpenAI’s API. If you rewind or reuse, watch pointer position; for a simple linear notebook flow it is fine.
+Line by line:
 
----
+- `drive.mount("/content/drive")` connects Google Drive to the notebook.
+- `"/content/drive"` is the path where Drive will appear inside Colab.
+- `audio_filename = "..."` stores the full file path of the audio file.
+- `audio_file = open(audio_filename, "rb")` opens that audio file for reading.
+- `"rb"` means read binary, which is the correct mode for an audio file sent to an API.
 
-### Cell 8 — Markdown — STEP 1 heading
+The old notebook used a Denver City Council audio clip, but you can use your own audio file too.
 
----
+## Step 4: Option 1, transcribe with Whisper
 
-### Cell 9 — Markdown — Option 1 title
+Before the code, here are the important names:
 
-Open-source transcription with **Transformers `pipeline`**.
-
----
-
-### Cell 10 — Code — Whisper pipeline (English medium)
+- `pipeline(...)` builds the speech-recognition helper
+- `"automatic-speech-recognition"` is the task name
+- `result["text"]` takes the plain transcript text from the output
 
 ```python
-from transformers import pipeline
-
 pipe = pipeline(
     "automatic-speech-recognition",
     model="openai/whisper-medium.en",
     dtype=torch.float16,
-    device='cuda',
-    return_timestamps=True
+    device="cuda",
+    return_timestamps=True,
 )
 
 result = pipe(audio_filename)
@@ -153,74 +135,59 @@ transcription = result["text"]
 print(transcription)
 ```
 
-**Line by line:**
+Line by line:
 
-- `"automatic-speech-recognition"` — ASR task tag.
-- `model="openai/whisper-medium.en"` — English-focused Whisper **medium** checkpoint (balance of speed/accuracy).
-- `dtype=torch.float16` — run math in half precision where supported to save memory.
-- `device='cuda'` — GPU inference strongly recommended for medium Whisper.
-- `return_timestamps=True` — include segment timing metadata inside `result` (even if only `text` is printed).
-- `result["text"]` — full transcript string.
+- `pipe = pipeline(...)` creates the speech-recognition pipeline.
+- `"automatic-speech-recognition"` is the task name for speech-to-text.
+- `model="openai/whisper-medium.en"` picks the Whisper English model to use.
+- `dtype=torch.float16` asks the model to use 16-bit floating-point numbers, which often saves GPU memory.
+- `device="cuda"` asks to run on the GPU.
+- `return_timestamps=True` asks the model to include timing information in the full result object.
+- `result = pipe(audio_filename)` sends the audio file path into the pipeline.
+- `transcription = result["text"]` takes only the transcript text from the full result dictionary.
+- `print(transcription)` prints the transcript.
 
-**Expected runtime:** May take noticeable minutes on a T4 for long audio.
+This is the open-source transcription path.
 
----
+## Step 5: Option 2, transcribe with OpenAI
 
-### Cell 11 — Code — Save open-source transcript
+Before the code, here are the important names:
 
-```python
-open_source_transcription = transcription
-```
-
-Preserves Option 1 output before Option 2 **overwrites** `transcription`.
-
----
-
-### Cell 12 — Markdown — Option 2 title
-
-Cloud API transcription with OpenAI.
-
----
-
-### Cell 13 — Code — OpenAI transcription
+- `OpenAI(...)` creates the API client
+- `audio.transcriptions.create(...)` sends the audio file to the transcription API
 
 ```python
 AUDIO_MODEL = "gpt-4o-mini-transcribe"
 
-openai_api_key = userdata.get('OPENAI_API_KEY')
-openai = OpenAI(api_key=openai_api_key)
-transcription = openai.audio.transcriptions.create(model=AUDIO_MODEL, file=audio_file, response_format="text")
+openai = OpenAI(api_key=userdata.get("OPENAI_API_KEY"))
+transcription = openai.audio.transcriptions.create(
+    model=AUDIO_MODEL,
+    file=audio_file,
+    response_format="text",
+)
 print(transcription)
 ```
 
-**Line by line:**
+Line by line:
 
-- `AUDIO_MODEL` — string id for the transcription model on OpenAI’s side (course choice; may change—check OpenAI docs if deprecated).
-- `userdata.get('OPENAI_API_KEY')` — Colab secret.
-- `OpenAI(api_key=...)` — constructs a client object with auth header configuration.
-- `audio.transcriptions.create(...)` — HTTP call under the hood; uploads audio bytes; returns an object whose string representation or `.text` accessor resolves to transcript text when `response_format="text"`.
+- `AUDIO_MODEL = "gpt-4o-mini-transcribe"` stores the transcription model name in a variable.
+- `openai = OpenAI(api_key=userdata.get("OPENAI_API_KEY"))` creates the OpenAI client.
+- `userdata.get("OPENAI_API_KEY")` reads the API key from Colab secrets.
+- `transcription = openai.audio.transcriptions.create(...)` sends the audio file to the transcription API.
+- `model=AUDIO_MODEL` tells the API which transcription model to use.
+- `file=audio_file` sends the opened audio file.
+- `response_format="text"` asks for plain text output instead of a more complex structure.
+- `print(transcription)` prints the transcription result.
 
-**Billing note:** This call incurs **OpenAI usage charges** according to your account plan.
+This path uses a paid API.
 
----
+## Step 6: Build the meeting-minutes prompt
 
-### Cell 14 — Code — Side-by-side markdown display
+Before the code, here are the important names:
 
-```python
-display(Markdown(open_source_transcription))
-print("\n\n")
-display(Markdown(transcription))
-```
-
-Renders **both** transcripts as markdown for quick visual comparison (differences in punctuation, disfluencies, etc.).
-
----
-
-### Cell 15 — Markdown — STEP 2 heading
-
----
-
-### Cell 16 — Code — Build chat messages for minutes
+- `system_message` gives high-level instructions to the chat model
+- `user_prompt` gives the task and the transcript
+- `messages` stores the chat in the role/content format used by many model APIs
 
 ```python
 system_message = """
@@ -242,106 +209,127 @@ Transcription:
 
 messages = [
     {"role": "system", "content": system_message},
-    {"role": "user", "content": user_prompt}
-  ]
+    {"role": "user", "content": user_prompt},
+]
 ```
 
-**Line by line:**
+Line by line:
 
-- **System message** — high-level style and output contract (markdown, no fenced code blocks).
-- **User prompt** — embeds the **entire** transcript via an f-string; for very long audio this can exceed context limits—production apps **chunk** transcripts.
-- `messages` — standard chat shape for `apply_chat_template` (see Day 3 guide).
+- `system_message = """..."""` stores the main behavior instructions for the model.
+- The system message says what kind of output we want and how it should be formatted.
+- `user_prompt = f"""..."""` stores the user's task request.
+- The `f` before the string means it is an f-string, so Python can insert variable values into it.
+- `{transcription}` inserts the transcript text into the prompt.
+- `messages = [...]` creates the chat message list.
+- `{"role": "system", "content": system_message}` adds the system instruction.
+- `{"role": "user", "content": user_prompt}` adds the user request and transcript.
 
----
+## Step 7: Load a Llama model
 
-### Cell 17 — Code — Quantization config (same as Day 4)
+Before the code, here are the important names:
+
+- `AutoTokenizer` loads the correct tokenizer for the model ID
+- `AutoModelForCausalLM` loads the chat model
+- `BitsAndBytesConfig` stores quantization settings
+- `TextStreamer` prints output as it is generated
 
 ```python
+LLAMA = "meta-llama/Llama-3.2-3B-Instruct"
+
 quant_config = BitsAndBytesConfig(
     load_in_4bit=True,
     bnb_4bit_use_double_quant=True,
     bnb_4bit_compute_dtype=torch.bfloat16,
-    bnb_4bit_quant_type="nf4"
+    bnb_4bit_quant_type="nf4",
 )
-```
 
-See **Cell 10 — Quantization configuration** in [08-models-quantization-and-loading.md](08-models-quantization-and-loading.md) for field meanings.
-
----
-
-### Cell 18 — Code — Tokenize + load + generate with streaming
-
-```python
 tokenizer = AutoTokenizer.from_pretrained(LLAMA)
 tokenizer.pad_token = tokenizer.eos_token
-inputs = tokenizer.apply_chat_template(messages, return_tensors="pt").to("cuda")
+inputs = tokenizer.apply_chat_template(
+    messages,
+    return_tensors="pt",
+    add_generation_prompt=True,
+).to("cuda")
+
 streamer = TextStreamer(tokenizer)
-model = AutoModelForCausalLM.from_pretrained(LLAMA, device_map="auto", quantization_config=quant_config)
+model = AutoModelForCausalLM.from_pretrained(
+    LLAMA,
+    device_map="auto",
+    quantization_config=quant_config,
+)
 outputs = model.generate(inputs, max_new_tokens=2000, streamer=streamer)
 ```
 
-**Line by line:**
+Line by line:
 
-- `apply_chat_template(..., return_tensors="pt")` — here **without** `add_generation_prompt=True` still works for many instruct models on single-turn user tasks, but if the model stalls or copies the prompt oddly, try adding `add_generation_prompt=True` (Day 4 lesson).
-- `max_new_tokens=2000` — allows long minutes; increases time and risk of rambling—tune as needed.
-- `streamer=streamer` — prints tokens live.
+- `LLAMA = "meta-llama/Llama-3.2-3B-Instruct"` stores the model ID for the chat model.
+- `quant_config = BitsAndBytesConfig(...)` creates the 4-bit quantization settings object.
+- `load_in_4bit=True` asks for 4-bit model weights.
+- `bnb_4bit_use_double_quant=True` asks for extra memory saving.
+- `bnb_4bit_compute_dtype=torch.bfloat16` asks some calculations to use `bfloat16`.
+- `bnb_4bit_quant_type="nf4"` selects the NF4 weight format.
+- `tokenizer = AutoTokenizer.from_pretrained(LLAMA)` loads the tokenizer for the Llama model.
+- `from_pretrained(...)` is the Hugging Face method that loads saved files for a model or tokenizer.
+- `tokenizer.pad_token = tokenizer.eos_token` sets the padding token to be the same as the end-of-sequence token.
+- `inputs = tokenizer.apply_chat_template(...)` formats the chat messages and turns them into token IDs.
+- `messages` is the message list created earlier.
+- `return_tensors="pt"` asks for a PyTorch tensor.
+- `add_generation_prompt=True` adds the assistant-start marker so the model knows it should reply next.
+- `.to("cuda")` moves the token tensor to the GPU.
+- `streamer = TextStreamer(tokenizer)` creates the streamer that will print new tokens as they appear.
+- `model = AutoModelForCausalLM.from_pretrained(...)` loads the chat model.
+- `device_map="auto"` lets the library choose device placement.
+- `quantization_config=quant_config` applies the 4-bit settings from earlier.
+- `outputs = model.generate(inputs, max_new_tokens=2000, streamer=streamer)` asks the model to generate the meeting minutes.
+- `inputs` is the tokenized prompt.
+- `max_new_tokens=2000` allows a long response.
+- `streamer=streamer` prints the response as it is being generated.
 
----
-
-### Cell 19 — Code — Decode full tensor row
+## Step 8: Show the result
 
 ```python
 response = tokenizer.decode(outputs[0])
-```
-
-Includes prompt + completion in one string; acceptable for a demo `display` step.
-
----
-
-### Cell 20 — Code — Render model output as markdown
-
-```python
 display(Markdown(response))
 ```
 
-If the model wrapped text in accidental code fences, markdown rendering would show them—your system prompt asked to avoid that.
+Before reading the lines:
 
----
+- `decode(...)` turns token IDs back into text
+- `Markdown(...)` tells the notebook to render the text as Markdown
 
-### Cell 21 — Markdown — Student extension link
+Line by line:
 
-Points to an advanced Colab using **`TextIteratorStreamer`** + **Gradio**—optional.
+- `response = tokenizer.decode(outputs[0])` turns the first generated token sequence back into a text string.
+- `outputs[0]` means "take the first output row."
+- `display(Markdown(response))` renders the text as Markdown in the notebook.
 
----
+Example output format:
 
-### Cell 22 — Code — Empty
+```md
+## Summary
+Short overview of the meeting
 
-Ignore.
+## Discussion Points
+- Main topic one
+- Main topic two
 
----
+## Takeaways
+- Key lesson or decision
 
-## Part C — Recap checklist
+## Action Items
+- Owner: task
+```
 
-You should be able to:
+## Step 9: Important practical note
 
-- Compare **open-source ASR** (Whisper pipeline) vs **hosted ASR** (OpenAI) on the same audio file.
-- Explain why `open_source_transcription` is saved **before** Option 2 runs.
-- Walk through **messages → template → generate → decode → display** for Llama minutes.
+Long transcripts can be too large for one prompt.
+In a bigger project, you may need to split the transcript into smaller chunks first.
 
----
+## What to remember
 
-## Part D — Common errors
-
-| Symptom | Likely cause | Fix |
-|---------|--------------|-----|
-| Drive mount fails | Popup blocked / wrong account | Retry mount; authorize |
-| File not found | Wrong `audio_filename` path | Match folder layout `MyDrive/llms/...` |
-| Whisper OOM | Medium model too big | Try a smaller Whisper checkpoint |
-| OpenAI auth error | Missing `OPENAI_API_KEY` | Add secret |
-| Llama 403 | Gated model | Accept license on Hub |
-
----
-
-## Next guide
-
-Optional extensions (image models, refiners, BFL): [11-generative-media-stable-diffusion-and-beyond.md](11-generative-media-stable-diffusion-and-beyond.md).
+- First turn audio into text.
+- Then turn text into structured minutes.
+- `pipeline(...)` is the simple path for open-source transcription.
+- `OpenAI(...)` is the client used for the API transcription path.
+- `AutoTokenizer` and `AutoModelForCausalLM` are used for the final report-writing model.
+- Understanding each parameter helps you adapt the project for your own audio later.

@@ -1,270 +1,351 @@
 # Models, Quantization, and Loading
 
-## How to use this guide
+## What this guide is about
 
-Follow [`../Week_3_Day_4_models.ipynb`](../Week_3_Day_4_models.ipynb) cell by cell while reading this document.
+In guide `06`, you used pipelines.
+Pipelines are easy because they hide many details.
 
-**Prerequisites:** [07-tokens-and-tokenizers.md](07-tokens-and-tokenizers.md) (chat templates, token IDs), [02-pytorch-and-tensorflow.md](02-pytorch-and-tensorflow.md) (what PyTorch is).
+In this guide, you go one level lower.
+You work directly with:
 
-**Hardware:** Notebook expects a **CUDA GPU** (T4 is enough for smaller ids). Quantization reduces memory but does not remove the GPU requirement for these cells as written.
+- a tokenizer
+- a model
+- generation settings
 
----
+This guide explains that code in simple English.
 
-## Part A — Float precision without jargon first
+## Step 1: Why use the lower-level API?
 
-### Why quantization exists
+Sometimes you want more control than a pipeline gives you.
 
-Model **weights** are numbers. If you store every weight as a **32-bit floating point** number (**float32**), you need **four bytes per weight**. A multi-billion-parameter model can exceed consumer GPU memory.
+For example, you may want to control:
 
-**Quantization** means storing or computing many weights with **fewer bits** so the model **fits** and sometimes runs faster, at some cost to numerical fidelity.
+- which model is loaded
+- how the prompt is built
+- how generation runs
+- how memory is saved
 
-### The “dimmer switch” analogy (from class notes)
+That is why people often move from `pipeline(...)` to model objects like `AutoModelForCausalLM`.
 
-Think of a **dimmer switch** for lights:
+## Step 2: What is a causal language model?
 
-- **Bright (more bits, e.g. float32):** finer control, more detail, more electricity (memory).  
-- **Dim (fewer bits, e.g. 4-bit storage):** coarser steps, less detail, less electricity.
+A causal language model is a model that predicts the next token from the tokens that came before it.
 
-Training often uses wider numeric formats; **inference** can sometimes use dimmer formats and still look good.
+This is the common setup for chat-style text generation.
 
-### What this notebook uses
+When you ask such a model a question, it answers by generating one token, then the next, then the next.
 
-**4-bit NormalFloat (NF4)** quantization via **`bitsandbytes`** integrated with Hugging Face `BitsAndBytesConfig`. **bfloat16** is used for certain **compute** paths while weights are compressed—details are in the config walkthrough below.
+## Step 3: Why quantization exists
 
----
+Large models need a lot of memory.
+If the weights are stored in a large number format, some models will not fit on your GPU.
 
-## Part B — Cell-by-cell walkthrough
+Quantization means storing weights in a smaller format so the model can fit more easily.
 
-Notebook: `Week_3_Day_4_models.ipynb` — **30 cells** (indices **0–29**). Cell 29 is empty.
+Simple picture:
 
-### Cell 0 — Markdown — Topic
+- more bits = more memory
+- fewer bits = less memory
 
-Introduces the **lower-level** Transformers API: you work with **tokenizer + model** objects directly instead of only `pipeline`.
+The tradeoff is that smaller formats may lose some detail, but often the model still works well enough for inference.
 
----
+## Step 4: Basic setup
 
-### Cell 1 — Markdown — Runtime pro-tip
+Before the code, here are the important names:
 
-Same misleading CUDA/bitsandbytes note—see [05](05-google-colab-and-gpus.md).
-
----
-
-### Cell 2 — Code — Install dependencies
+- `AutoTokenizer` loads the correct tokenizer for a model ID
+- `AutoModelForCausalLM` loads a text-generation model
+- `TextStreamer` prints tokens as the model generates them
+- `BitsAndBytesConfig` stores quantization settings
 
 ```python
 !pip install -q --upgrade bitsandbytes accelerate transformers==4.57.6
-```
 
-- **`bitsandbytes`** — supplies 4-bit quantization kernels used when loading weights.
-- **`accelerate`** — helps with device placement patterns (`device_map="auto"`).
-- **`transformers`** — pinned version for reproducibility.
-
----
-
-### Cell 3 — Code — Imports
-
-```python
-from google.colab import userdata
-from huggingface_hub import login
-from transformers import AutoTokenizer, AutoModelForCausalLM, TextStreamer, BitsAndBytesConfig
+from transformers import (
+    AutoTokenizer,
+    AutoModelForCausalLM,
+    TextStreamer,
+    BitsAndBytesConfig,
+)
 import torch
 import gc
 ```
 
-- **`AutoModelForCausalLM`** — “autoregressive” text model: predicts **next token** given previous tokens (GPT-style / Llama-style).
-- **`TextStreamer`** — prints generated tokens to the console **as they arrive**.
-- **`BitsAndBytesConfig`** — dataclass describing 4-bit load options for `from_pretrained`.
-- **`gc` / `torch.cuda.empty_cache()`** — used later to free GPU memory between runs.
+Line by line:
 
----
+- `!pip install ...` installs the packages used in this guide.
+- `bitsandbytes` is the library that helps with 4-bit model loading.
+- `accelerate` helps with device placement and larger model workflows.
+- `transformers==4.57.6` installs the specific `transformers` version used here.
+- `from transformers import (...)` imports the Hugging Face classes used in the guide.
+- `import torch` imports PyTorch.
+- `import gc` imports Python's garbage-collection helper, which is useful when cleaning memory later.
 
-### Cell 4 — Markdown — HF login instructions
+## Step 5: Pick model IDs
 
-Same `HF_TOKEN` secret pattern as other days.
-
----
-
-### Cell 5 — Code — Login
-
-```python
-hf_token = userdata.get('HF_TOKEN')
-login(hf_token, add_to_git_credential=True)
-```
-
-Shorter than Day 3’s version—assumes you already know to set the secret.
-
----
-
-### Cell 6 — Markdown — Llama access notes
-
-Explains **gated** Meta Llama models on the Hub. You must accept terms on the model card.
-
----
-
-### Cell 7 — Code — Model id strings
+A model ID is the name used on Hugging Face to identify one exact model.
 
 ```python
-# LLAMA = "meta-llama/Meta-Llama-3.1-8B-Instruct"
 LLAMA = "meta-llama/Llama-3.2-1B-Instruct"
-
 PHI = "microsoft/Phi-4-mini-instruct"
 GEMMA = "google/gemma-3-270m-it"
 QWEN = "Qwen/Qwen3-4B-Instruct-2507"
 DEEPSEEK = "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B"
 ```
 
-**Line by line:**
+Line by line:
 
-- These are **strings** used later as Hub ids.  
-- Comment/uncomment `LLAMA` to pick a larger or smaller Llama checkpoint.  
-- **`Phi-4-mini-instruct`**, **`gemma-3-270m-it`**, etc., may each have their own license gates.
+- `LLAMA = "meta-llama/Llama-3.2-1B-Instruct"` stores the model ID for one Llama instruct model.
+- `PHI = "microsoft/Phi-4-mini-instruct"` stores the model ID for one Phi model.
+- `GEMMA = "google/gemma-3-270m-it"` stores the model ID for one Gemma model.
+- `QWEN = "Qwen/Qwen3-4B-Instruct-2507"` stores the model ID for one Qwen model.
+- `DEEPSEEK = "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B"` stores the model ID for one DeepSeek model.
 
----
+Some of these models need license approval on Hugging Face first.
 
-### Cell 8 — Code — Example chat messages
+## Step 6: Build a 4-bit config
 
-```python
-messages = [
-    {"role": "user", "content": "Tell a joke for a room of Data Scientists"}
-  ]
-```
-
-OpenAI-style **role/content** list; will be converted by `apply_chat_template` (next section).
-
----
-
-### Cell 9 — Markdown — More Llama licensing detail
-
-Reinforces visiting the Meta model card; links troubleshooting Colab.
-
----
-
-### Cell 10 — Code — Quantization configuration
+`BitsAndBytesConfig` is a class that stores quantization settings.
+It does not load the model by itself.
+It only stores the options you want to use later.
 
 ```python
 quant_config = BitsAndBytesConfig(
     load_in_4bit=True,
     bnb_4bit_use_double_quant=True,
     bnb_4bit_compute_dtype=torch.bfloat16,
-    bnb_4bit_quant_type="nf4"
+    bnb_4bit_quant_type="nf4",
 )
 ```
 
-**Field by field:**
+Line by line:
 
-- `load_in_4bit=True` — store (much of) the weights in **4-bit** form in GPU memory.
-- `bnb_4bit_use_double_quant=True` — **double quantization**: quantize the **scaling constants** too, saving a bit more memory.
-- `bnb_4bit_compute_dtype=torch.bfloat16` — some intermediate matmuls run in **brain float 16** (`bfloat16`), a 16-bit float format with the same exponent range as float32 (good stability vs classic float16).
-- `bnb_4bit_quant_type="nf4"` — use the **NormalFloat4** data layout designed for neural net weights.
+- `quant_config = BitsAndBytesConfig(...)` creates one quantization settings object and stores it in `quant_config`.
+- `load_in_4bit=True` tells the model loader to use 4-bit weights.
+- `bnb_4bit_use_double_quant=True` asks for extra memory saving through double quantization.
+- `bnb_4bit_compute_dtype=torch.bfloat16` says that some model calculations should use the `bfloat16` number format.
+- `torch.bfloat16` is a 16-bit floating-point format used often in modern model work.
+- `bnb_4bit_quant_type="nf4"` selects the 4-bit weight format called NF4, which is made for neural-network weights.
 
----
+## Step 7: Turn chat messages into model input
 
-### Cell 11 — Markdown — 403 checklist
+Before the code, here are the important names:
 
-If `from_pretrained` fails with permission errors, verify login, token scopes, and model card access.
-
----
-
-### Cell 12 — Code — Tokenize for Llama
+- `AutoTokenizer` is the Hugging Face helper that loads the correct tokenizer for a model ID
+- `from_pretrained(...)` downloads saved tokenizer files and prepares them
+- `apply_chat_template(...)` turns a message list into the prompt format the model expects
 
 ```python
+messages = [
+    {"role": "user", "content": "Tell a joke for a room of Data Scientists"}
+]
+
 tokenizer = AutoTokenizer.from_pretrained(LLAMA)
 tokenizer.pad_token = tokenizer.eos_token
 inputs = tokenizer.apply_chat_template(messages, return_tensors="pt").to("cuda")
+print(inputs)
 ```
 
-**Line by line:**
+Line by line:
 
-- `from_pretrained(LLAMA)` — download tokenizer files for that checkpoint.
-- `tokenizer.pad_token = tokenizer.eos_token` — many causal LMs lack a dedicated pad token; **reuse end-of-sequence token** as padding ID for batching safety.
-- `apply_chat_template(..., return_tensors="pt")` — return a **PyTorch** tensor of token IDs shaped `[1, sequence_length]` (batch dimension 1).
-- `.to("cuda")` — place input tensor on GPU RAM.
+- `messages = [...]` creates a list with one chat message.
+- `"role": "user"` says this message is from the user.
+- `"content": "..."` holds the actual text of the message.
+- `tokenizer = AutoTokenizer.from_pretrained(LLAMA)` loads the tokenizer that matches the model ID stored in `LLAMA`.
+- `from_pretrained(...)` is the method that downloads saved files if needed and then loads them.
+- `tokenizer.pad_token = tokenizer.eos_token` sets the padding token to be the same as the end-of-sequence token.
+- `pad_token` is used when inputs need padding.
+- `eos_token` means end-of-sequence token.
+- `inputs = tokenizer.apply_chat_template(...)` formats the message list and turns it into model-ready input.
+- `messages` is the chat data being formatted.
+- `return_tensors="pt"` asks the tokenizer to return a PyTorch tensor instead of plain text.
+- `"pt"` means PyTorch.
+- `.to("cuda")` moves the resulting tensor to the GPU.
+- `print(inputs)` prints the tensor.
 
----
+Output idea:
 
-### Cell 13 — Code — Display `inputs`
+```text
+A PyTorch tensor of token IDs on the GPU
+```
 
-Running `inputs` in a cell shows the tensor wrapper (dtype, device, shape). **Not human-readable text**—that is intentional pedagogy.
+## Step 8: Load the model
 
----
+Before the code, here are the important names:
 
-### Cell 14 — Code — Load quantized model
+- `AutoModelForCausalLM` is a Hugging Face class for text-generation models
+- `device_map="auto"` lets the library choose device placement
 
 ```python
-model = AutoModelForCausalLM.from_pretrained(LLAMA, device_map="auto", quantization_config=quant_config)
+model = AutoModelForCausalLM.from_pretrained(
+    LLAMA,
+    device_map="auto",
+    quantization_config=quant_config,
+)
 ```
 
-**Line by line:**
+Line by line:
 
-- `AutoModelForCausalLM.from_pretrained` — instantiate the Python model class + load weights from Hub cache.
-- `device_map="auto"` — let Accelerate heuristics spread layers across available GPUs (rare on Colab single GPU, but future-proof) and place weights intelligently.
-- `quantization_config=quant_config` — apply the 4-bit recipe from cell 10.
+- `model = AutoModelForCausalLM.from_pretrained(...)` loads the text-generation model and stores it in `model`.
+- `LLAMA` is the model ID to load.
+- `device_map="auto"` lets the library choose how to place the model on the available device or devices.
+- `quantization_config=quant_config` tells the loader to use the 4-bit settings created earlier.
 
-**First run:** large download + slow load.
+This is the main loading step.
+It may take time the first time because files need to download.
 
----
-
-### Cell 15 — Code — Memory footprint
+## Step 9: Check memory use
 
 ```python
 memory = model.get_memory_footprint() / 1e6
 print(f"Memory footprint: {memory:,.1f} MB")
 ```
 
-**Interpretation:** Reports an approximate **GPU memory** usage for the loaded model object (implementation-defined but useful for comparisons before/after quantization).
+Line by line:
 
----
+- `model.get_memory_footprint()` asks the model for an estimate of how much memory it uses.
+- `/ 1e6` changes the value into roughly megabytes.
+- `print(f"...")` prints a formatted string.
+- `:,.1f` is Python formatting that keeps one decimal place and adds commas when needed.
 
-### Cell 16 — Markdown — “Looking under the hood”
+Expected result:
 
-Explains that printing `model` shows **PyTorch modules** implementing the **Transformer** architecture; lists what to look for (embeddings, decoder layers, LM head). Points to optional deeper materials.
-
----
-
-### Cell 17 — Code — Print the model object
-
-```python
-model
+```text
+Memory footprint: ... MB
 ```
 
-In Jupyter/Colab, showing `model` calls `repr` and prints a **tree** of submodule names (for example `LlamaDecoderLayer`, `LlamaSdpaAttention`, `LlamaMLP`, …).
+The exact number depends on the model.
 
-**Next step after running:** read [09-inside-llama-decoder-architecture.md](09-inside-llama-decoder-architecture.md) for a line-by-line reading of a representative tree (sizes may differ by exact checkpoint; the guide explains what each block **means**).
+## Step 10: Generate text
 
----
-
-### Cell 18 — Markdown — Source code rabbit hole
-
-Links to the `transformers` GitHub repository for Llama implementations—optional reading.
-
----
-
-### Cell 19 — Code — `generate` without streaming
+`generate(...)` is the main method used to ask the model for a reply.
 
 ```python
 outputs = model.generate(inputs, max_new_tokens=80)
-outputs[0]
+print(tokenizer.decode(outputs[0]))
 ```
 
-**Line by line:**
+Line by line:
 
-- `generate` — autoregressive loop inside the library: repeatedly predicts next token until stop criteria.
-- `max_new_tokens=80` — cap **new** tokens (excluding prompt length).
-- `outputs[0]` — first (and only) batch row: 1D tensor of token IDs including the prompt.
+- `outputs = model.generate(inputs, max_new_tokens=80)` asks the model to continue the input.
+- `inputs` is the tensor created earlier from the chat messages.
+- `max_new_tokens=80` tells the model to generate up to 80 new tokens.
+- `print(tokenizer.decode(outputs[0]))` turns the first output row back into text and prints it.
+- `outputs[0]` means "take the first generated sequence."
+- `decode(...)` turns token IDs into readable text.
 
----
+Output idea:
 
-### Cell 20 — Code — Decode to text
+```text
+The original prompt followed by the model's reply
+```
+
+## Step 11: Stream the answer live
+
+`TextStreamer` is a helper class that prints tokens as they appear.
 
 ```python
-tokenizer.decode(outputs[0])
+streamer = TextStreamer(tokenizer)
+outputs = model.generate(inputs, max_new_tokens=80, streamer=streamer)
 ```
 
-Now you see the assistant continuation as a string (includes prompt + completion depending on tokenizer settings).
+Line by line:
 
----
+- `streamer = TextStreamer(tokenizer)` creates a streamer object that knows how to decode the generated token IDs.
+- `tokenizer` is passed in so the streamer can turn token IDs into text.
+- `outputs = model.generate(...)` runs generation again.
+- `streamer=streamer` tells the model to send new tokens to the streamer as they appear.
 
-### Cell 21 — Code — Free GPU memory
+This prints tokens as they are produced.
+It feels more like a chat app.
+
+## Step 12: A reusable helper
+
+This helper wraps the same steps into one function.
+
+```python
+def generate(model_id, messages, quant=True, max_new_tokens=80):
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    tokenizer.pad_token = tokenizer.eos_token
+    input_ids = tokenizer.apply_chat_template(
+        messages,
+        return_tensors="pt",
+        add_generation_prompt=True,
+    ).to("cuda")
+    attention_mask = torch.ones_like(input_ids, dtype=torch.long, device="cuda")
+    streamer = TextStreamer(tokenizer)
+    if quant:
+        model = AutoModelForCausalLM.from_pretrained(
+            model_id,
+            quantization_config=quant_config,
+        ).to("cuda")
+    else:
+        model = AutoModelForCausalLM.from_pretrained(model_id).to("cuda")
+    model.generate(
+        input_ids=input_ids,
+        attention_mask=attention_mask,
+        max_new_tokens=max_new_tokens,
+        streamer=streamer,
+    )
+```
+
+Before reading the lines, here are the function parameters:
+
+- `model_id` is the Hugging Face model ID to load
+- `messages` is the chat message list
+- `quant=True` means use quantization by default
+- `max_new_tokens=80` means generate up to 80 new tokens by default
+
+Line by line:
+
+- `def generate(...):` defines a reusable Python function called `generate`.
+- `tokenizer = AutoTokenizer.from_pretrained(model_id)` loads the tokenizer for the given model ID.
+- `tokenizer.pad_token = tokenizer.eos_token` sets the padding token.
+- `input_ids = tokenizer.apply_chat_template(...)` formats the message list and returns PyTorch token IDs.
+- `return_tensors="pt"` asks for PyTorch tensors.
+- `add_generation_prompt=True` adds the assistant-start marker so the model knows it should answer.
+- `.to("cuda")` moves the token IDs to the GPU.
+- `attention_mask = torch.ones_like(input_ids, dtype=torch.long, device="cuda")` creates a mask tensor with the same shape as `input_ids`.
+- `torch.ones_like(...)` means "make a new tensor of ones with the same shape."
+- `dtype=torch.long` sets the integer type used for the mask.
+- `device="cuda"` puts the mask on the GPU.
+- `streamer = TextStreamer(tokenizer)` creates the streamer object.
+- `if quant:` checks whether quantization should be used.
+- `model = AutoModelForCausalLM.from_pretrained(..., quantization_config=quant_config).to("cuda")` loads the model with 4-bit settings and moves it to the GPU.
+- `else:` is the non-quantized path.
+- `model = AutoModelForCausalLM.from_pretrained(model_id).to("cuda")` loads the model without 4-bit settings and moves it to the GPU.
+- `model.generate(...)` runs the actual generation.
+- `input_ids=input_ids` passes in the tokenized prompt.
+- `attention_mask=attention_mask` passes in the mask.
+- `max_new_tokens=max_new_tokens` uses the chosen output length limit.
+- `streamer=streamer` streams the output as it appears.
+
+This helper was used in the old notebook to try several models with the same prompt.
+
+## Step 13: Try different models
+
+```python
+generate(PHI, messages)
+generate(GEMMA, messages, quant=False)
+generate(QWEN, messages)
+generate(DEEPSEEK, messages, quant=False, max_new_tokens=500)
+```
+
+Line by line:
+
+- `generate(PHI, messages)` runs the helper with the Phi model and the default settings.
+- `generate(GEMMA, messages, quant=False)` runs the Gemma model without quantization.
+- `quant=False` means "load the model without the 4-bit config."
+- `generate(QWEN, messages)` runs the Qwen model with the default quantized path.
+- `generate(DEEPSEEK, messages, quant=False, max_new_tokens=500)` runs DeepSeek without quantization and allows a much longer answer.
+- `max_new_tokens=500` tells the model it can generate more tokens than the default.
+
+Simple rule:
+
+- larger models often need quantization
+- smaller models can sometimes run without it
+
+## Step 14: Clean up memory
 
 ```python
 del model, inputs, tokenizer, outputs
@@ -272,133 +353,19 @@ gc.collect()
 torch.cuda.empty_cache()
 ```
 
-**Why:** Later cells load **other** models; CUDA OOM is common without cleanup.
+Line by line:
 
----
+- `del model, inputs, tokenizer, outputs` removes those variables from the current Python scope.
+- `gc.collect()` asks Python to clean up unused objects.
+- `torch.cuda.empty_cache()` asks PyTorch to release cached GPU memory that is no longer needed.
 
-### Cell 22 — Markdown — Streaming + generation prompts
+This helps when you want to load another model in the same runtime.
 
-Explains replacing plain `generate` with:
+## What to remember
 
-```python
-streamer = TextStreamer(tokenizer)
-outputs = model.generate(..., streamer=streamer)
-```
-
-and adding `add_generation_prompt=True` inside `apply_chat_template` so chat-tuned models know where to begin the assistant reply.
-
-Link in notebook: [HF chat templating docs](https://huggingface.co/docs/transformers/main/en/chat_templating#what-are-generation-prompts).
-
----
-
-### Cell 23 — Code — `generate` helper function
-
-```python
-def generate(model, messages, quant=True, max_new_tokens=80):
-  tokenizer = AutoTokenizer.from_pretrained(model)
-  tokenizer.pad_token = tokenizer.eos_token
-  input_ids = tokenizer.apply_chat_template(messages, return_tensors="pt", add_generation_prompt=True).to("cuda")
-  attention_mask = torch.ones_like(input_ids, dtype=torch.long, device="cuda")
-  streamer = TextStreamer(tokenizer)
-  if quant:
-    model = AutoModelForCausalLM.from_pretrained(model, quantization_config=quant_config).to("cuda")
-  else:
-    model = AutoModelForCausalLM.from_pretrained(model).to("cuda")
-  outputs = model.generate(input_ids=input_ids, attention_mask=attention_mask, max_new_tokens=max_new_tokens, streamer=streamer)
-```
-
-**Important naming note:** The **parameter** is called `model`, but callers pass a **string id** like `PHI` or `GEMMA`. Inside the function, that string is passed to `from_pretrained`. Reading call sites like `generate(PHI, messages)` makes this clear.
-
-**Line by line:**
-
-- Fresh `AutoTokenizer` per call—simple, not maximally efficient.
-- `add_generation_prompt=True` — insert assistant-start markers for instruct checkpoints.
-- `attention_mask = torch.ones_like(...)` — tells the model “all positions are real tokens; none are padding.” Still required when passing `input_ids` explicitly to `generate` in some configurations.
-- `TextStreamer(tokenizer)` — live printing.
-- `if quant:` branch — reload with **4-bit** config; else full precision **float weights** on GPU (only viable for small models like Gemma 270M on a T4).
-- `model.generate(..., streamer=streamer)` — identical generation loop but prints incrementally.
-
-**Return value:** The function does not `return` decoded text; **the streamer already printed** tokens to the cell output.
-
----
-
-### Cell 24 — Code — Run Phi with quantization default
-
-```python
-generate(PHI, messages)
-```
-
-Uses `quant=True` default → 4-bit load.
-
----
-
-### Cell 25 — Markdown — Gemma license gate
-
-Google Gemma may require accepting terms on its Hub page.
-
----
-
-### Cell 26 — Code — New joke prompt + Gemma full precision
-
-```python
-messages = [
-    {"role": "user", "content": "Tell a light-hearted joke for a room of Data Scientists"}
-  ]
-generate(GEMMA, messages, quant=False)
-```
-
-**Why `quant=False`:** Tiny Gemma fits without 4-bit; also exercises the non-quantized branch.
-
----
-
-### Cell 27 — Code — Qwen with default quant
-
-```python
-generate(QWEN, messages)
-```
-
-Larger than Gemma; 4-bit path is important on 16 GB GPUs.
-
----
-
-### Cell 28 — Code — DeepSeek longer generation, no quant
-
-```python
-generate(DEEPSEEK, messages, quant=False, max_new_tokens=500)
-```
-
-**Tradeoff:** `quant=False` + larger token budget → **high VRAM** risk on Colab. If you OOM, switch to `quant=True` or shorter `max_new_tokens`.
-
----
-
-### Cell 29 — Code — Empty
-
-Ignore.
-
----
-
-## Part C — Recap checklist
-
-You should now be able to:
-
-- Explain **4-bit NF4** at a high level and why `BitsAndBytesConfig` exists.
-- Trace text → `apply_chat_template` → tensor on CUDA → `generate` → `decode`.
-- Describe what `device_map="auto"` and `TextStreamer` accomplish.
-- Read a printed `model` tree at a **high** level and know where to go for deeper layer meanings.
-
----
-
-## Part D — Common errors
-
-| Symptom | Likely cause | Fix |
-|---------|--------------|-----|
-| CUDA OOM | Model too large for GPU / forgot cleanup | `del` + `empty_cache`; use smaller `LLAMA`; enable `quant=True` |
-| 403 / gated | License not accepted | Model card → accept |
-| `login` None | Missing `HF_TOKEN` secret | Add Colab secret |
-| Slow every call | `generate()` reloads weights each invocation | For production, load once, reuse `model` object |
-
----
-
-## Next guide
-
-[09-inside-llama-decoder-architecture.md](09-inside-llama-decoder-architecture.md) explains the printed module tree line by line.
+- `AutoTokenizer` loads the correct tokenizer for a model.
+- `AutoModelForCausalLM` loads a text-generation model.
+- `from_pretrained(...)` loads saved model or tokenizer files.
+- `BitsAndBytesConfig` stores quantization settings.
+- `generate(...)` is the method that asks the model to continue the prompt.
+- Understanding the parameters helps you control model loading instead of only copying code.

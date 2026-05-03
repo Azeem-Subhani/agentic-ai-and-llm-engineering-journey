@@ -2,71 +2,117 @@
 
 ## What this guide is about
 
-You will learn what a **deep learning framework** is, why courses keep mentioning **PyTorch** and **TensorFlow**, and how that connects to the line you will see in the Day 4 notebook: a Hugging Face **model object** is “a neural network implemented in PyTorch.”
+This guide explains what PyTorch and TensorFlow are, and why they matter even when you mostly use Hugging Face code.
 
-No calculus is required here—only clear pictures.
+You do not need advanced math for this page.
+You only need a clear mental picture.
 
----
+## Step 1: Why do we need frameworks?
 
-## Step 1 — What problem do frameworks solve?
+Modern AI models use a lot of repeated math.
+If every team wrote all of that math from zero, progress would be slow and many bugs would appear.
 
-A modern language model is built from many repeated building blocks (layers of math). If programmers had to write every low-level operation by hand for every project, progress would be slow and buggy.
+A framework is a library that gives us ready-made tools for this work.
 
-A **deep learning framework** is a library that provides:
+These tools usually include:
 
-- **Tensors:** multi-dimensional arrays (think tables of numbers) that can live in **CPU** or **GPU** memory.
-- **Automatic differentiation:** a way to compute how small changes in weights affect an error signal—used heavily during **training**.
-- **GPU acceleration:** operations batched so a graphics card can run them efficiently.
-- **Building blocks:** common layer types (linear layers, attention, activation functions) already implemented and tested.
+- tensors for storing numbers
+- model layers
+- GPU support
+- training utilities
 
-**PyTorch** and **TensorFlow** are two popular frameworks. Both are widely used in research and industry. Hugging Face **Transformers** is implemented primarily in **PyTorch** today for most model definitions you will touch in class.
+So a framework is like a toolbox for model building and model running.
 
----
+## Step 2: What is a tensor?
 
-## Step 2 — What is PyTorch, in plain language?
+A tensor is a container of numbers.
 
-**PyTorch** is an open-source Python library from Meta (with a large community) for building and running neural networks.
+It can be:
 
-When you run:
+- a single list
+- a table
+- a bigger multi-step structure
+
+Model inputs, outputs, and weights are usually stored as tensors.
+
+If you are new, you can think of a tensor as:
+"the main number format used inside deep learning code."
+
+## Step 3: What is PyTorch?
+
+PyTorch is an open-source Python framework used to build and run neural networks.
+
+When you write:
 
 ```python
 import torch
 ```
 
-you gain access to `torch.Tensor` objects and layers like `torch.nn.Linear`. A full model is often a Python **class** whose `forward` method describes how data flows from input to output.
+What this line means:
 
-In the course notebooks, you rarely write raw PyTorch layer-by-layer for Llama—**Hugging Face** already did that—but you still benefit from PyTorch because:
+- `import` is the Python keyword used to load a library into your code.
+- `torch` is the package name for PyTorch.
+- After this line runs, you can use PyTorch tools such as `torch.Tensor`, `torch.nn`, and `torch.cuda`.
 
-- The **weights** are stored in PyTorch tensors.
-- **Device** placement (`"cuda"` vs `"cpu"`) is PyTorch vocabulary.
-- **Quantization** helpers (see guide `08`) integrate with PyTorch dtypes such as `torch.bfloat16`.
+you get tools for:
 
----
+- tensors
+- GPU use
+- model layers
+- training and inference code
 
-## Step 3 — What is TensorFlow?
+In many Hugging Face examples, PyTorch is the engine under the hood.
 
-**TensorFlow** is an open-source framework from Google (with a large ecosystem). It is another way to define tensors, run them on GPU, and train models.
+## Step 4: Why PyTorch matters in this module
 
-Some models or tools in the wild are released with TensorFlow checkpoints, but the **Hugging Face Transformers** code path used in your Week 3 notebooks is **PyTorch-first**. If you see TensorFlow mentioned in older blog posts, treat it as an alternative ecosystem, not a requirement for these exercises.
+Even if you do not build a model from zero, PyTorch still matters because:
 
----
+- model weights are often stored in PyTorch format
+- device names like `"cuda"` come from the PyTorch world
+- quantization settings often use PyTorch data types such as `torch.bfloat16`
+- Hugging Face model classes often wrap PyTorch modules
 
-## Step 4 — How this connects to “running a model yourself”
+So when you load a model with Hugging Face, you are often still using PyTorch indirectly.
 
-When your notes contrast **Ollama** vs **Hugging Face** (see guide `04`), the Hugging Face path often means:
+## Step 5: What is TensorFlow?
 
-- You choose a **model id** on the Hub.
-- Python libraries download **configuration** and **weights**.
-- A **PyTorch module** inside Transformers holds those weights and runs **inference**.
+TensorFlow is another major deep learning framework.
+It solves many of the same problems as PyTorch.
 
-So “running it yourself” does **not** mean you hand-type matrix multiplications. It means **your Python process** loads public weights and executes the open implementation, instead of sending every prompt to someone else’s HTTP API.
+It can also:
 
----
+- store tensors
+- use GPUs
+- train models
+- run models
 
-## Step 5 — What you should remember
+TensorFlow has been very important in research and industry.
 
-- A **framework** supplies tensors, GPU support, and neural building blocks.  
-- **PyTorch** is the framework directly under most HF `AutoModel*` classes you will use.  
-- **TensorFlow** is a major alternative ecosystem; you do not need it for the Week 3 notebooks listed in [README.md](README.md).
+## Step 6: Do I need both?
 
-Next: [03-hugging-face-ecosystem.md](03-hugging-face-ecosystem.md) maps the main Hugging Face **libraries** to jobs they do.
+Not for this module.
+
+It is useful to know that both exist, but most examples in this folder are closer to PyTorch.
+So if you are a beginner, do not worry about learning both at the same time.
+
+## Step 7: How this connects to Hugging Face
+
+When you use Hugging Face with Python, a common flow is:
+
+1. pick a model ID
+2. load the tokenizer
+3. load the model
+4. run inference
+
+Under the surface, Hugging Face often uses PyTorch to hold the tensors and run the math.
+
+That is why people sometimes say:
+"Hugging Face gives you the model interface, and PyTorch gives you the engine."
+
+## What to remember
+
+- A framework is a toolbox for model math.
+- A tensor is the basic number container used by models.
+- PyTorch and TensorFlow are both important frameworks.
+- In this module, PyTorch is the one you will feel most often.
+- Hugging Face usually sits on top of these lower-level tools.

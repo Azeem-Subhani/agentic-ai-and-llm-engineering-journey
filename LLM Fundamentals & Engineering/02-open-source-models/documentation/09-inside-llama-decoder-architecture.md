@@ -1,57 +1,33 @@
 # Inside a Llama-Style Decoder Model
 
-## How to use this guide
+## What this guide is about
 
-This document explains **one printed example** of a Hugging Face **`LlamaForCausalLM`** object—the tree that appeared in [`../notes.md`](../notes.md) and that you can also obtain by evaluating `model` in [`Week_3_Day_4_models.ipynb`](../Week_3_Day_4_models.ipynb) after loading Llama (cell 17).
+In guide `08`, you loaded and ran a chat model.
+This guide explains the main parts you see when you print that model.
 
-**Important:** Exact numbers (**128256**, **4096**, **32 layers**, **1024** for K/V, etc.) depend on the **specific checkpoint** (8B vs smaller variants, grouped-query attention settings, etc.). Treat the tree below as a **pedagogical reference layout**; your printed lines may differ slightly, but the **names and roles** of blocks stay the same family-wide.
+The goal is not to turn you into a research scientist in one page.
+The goal is to help you read the printed model tree without feeling lost.
 
-**Prerequisites:** [08-models-quantization-and-loading.md](08-models-quantization-and-loading.md), especially the idea of **token embeddings**, **decoder layers**, and **`lm_head`**.
+## Step 1: What kind of model is this?
 
----
+Llama is a decoder-only language model.
 
-## Part A — Decoder-only language models
+That means it works by reading earlier tokens and predicting the next token.
+This is the same basic pattern used in many chat-style text models.
 
-**Llama** (in the configuration used in class) is a **decoder-only** transformer: it stacks identical **decoder blocks** one after another. There is **no separate encoder** (unlike original “encoder–decoder” translation transformers).
+You do not need to know every math detail right now.
+It is enough to know that the model processes the input in layers.
 
-**Causal** means each position may attend only to **itself and previous positions** when computing attention—this preserves autoregressive “predict the next token” training.
+## Step 2: A short view of the printed model
 
----
-
-## Part B — Why nonlinearity matters (short but precise)
-
-Each block contains **linear** layers (matrix multiplications). If you composed only linear layers without breaks, the whole network would collapse mathematically into **one** giant linear map for many architectures—greatly limiting what patterns it could represent.
-
-**Nonlinear activation functions** (here **`SiLU`**, also called **Swish**) introduce **curvature**: the model can approximate much richer input–output relationships. That is why you see `act_fn` inside the MLP block below—it is not decorative.
-
----
-
-## Part C — Line-by-line on the printed tree
-
-Below is the structure from class notes (slightly cleaned for typography). After each block: **what it is** and **what shape intuition to carry**.
+Here is a simplified version of the structure:
 
 ```text
 LlamaForCausalLM(
   (model): LlamaModel(
     (embed_tokens): Embedding(128256, 4096)
     (layers): ModuleList(
-      (0-31): 32 x LlamaDecoderLayer(
-        (self_attn): LlamaSdpaAttention(
-          (q_proj): Linear(in_features=4096, out_features=4096, bias=False)
-          (k_proj): Linear(in_features=4096, out_features=1024, bias=False)
-          (v_proj): Linear(in_features=4096, out_features=1024, bias=False)
-          (o_proj): Linear(in_features=4096, out_features=4096, bias=False)
-          (rotary_emb): LlamaRotaryEmbedding()
-        )
-        (mlp): LlamaMLP(
-          (gate_proj): Linear(in_features=4096, out_features=14336, bias=False)
-          (up_proj): Linear(in_features=4096, out_features=14336, bias=False)
-          (down_proj): Linear(in_features=14336, out_features=4096, bias=False)
-          (act_fn): SiLU()
-        )
-        (input_layernorm): LlamaRMSNorm((4096,), eps=1e-05)
-        (post_attention_layernorm): LlamaRMSNorm((4096,), eps=1e-05)
-      )
+      (0-31): 32 x LlamaDecoderLayer(...)
     )
     (norm): LlamaRMSNorm((4096,), eps=1e-05)
   )
@@ -59,102 +35,147 @@ LlamaForCausalLM(
 )
 ```
 
-### Top: `LlamaForCausalLM`
+The exact numbers can change across Llama models.
+But the big parts usually stay similar.
 
-**What it is:** The **Python module** Hugging Face wraps around the inner `LlamaModel` plus the output projection used for **vocabulary logits** (scores per token).
+## Step 3: `embed_tokens`
 
----
+`embed_tokens` is the first major block.
 
-### `LlamaModel` → `embed_tokens: Embedding(128256, 4096)`
+It takes token IDs and turns them into vectors.
+A vector is a list of numbers that the model can work with.
 
-**What it is:** A lookup table from **token ID** (row index) to a **4096-dimensional vector** of floats—the model’s internal notion of “what this token means” before any self-attention.
+So the flow starts like this:
 
-- **128256** — vocabulary size for this checkpoint (each possible token ID).  
-- **4096** — **hidden size** (model width).
+1. text becomes token IDs
+2. token IDs become vectors
+3. the model processes those vectors
 
----
+This is why embeddings matter.
+They are the first step from text form into model form.
 
-### `layers: ModuleList` with **32 × `LlamaDecoderLayer`**
+## Step 4: `layers`
 
-**What it is:** The depth of the network. Each layer applies **attention** (mix information across positions) then **MLP** (position-wise processing), with normalization around those sub-blocks (see RMSNorm entries).
+The model has many repeated decoder layers.
 
-Your notes mention 32 layers; smaller Llama variants may use fewer—count the printed range `(0-N)`.
+In the example above, there are 32 layers.
+Smaller models may have fewer.
 
----
+Each layer takes the current vectors and improves them a little more.
+You can think of the layers as repeated thinking steps.
 
-#### Inside one `LlamaDecoderLayer` — `self_attn: LlamaSdpaAttention`
+## Step 5: What is inside one decoder layer?
 
-**Self-attention** lets each token position gather information from allowed other positions (all previous tokens, for causal models).
+A decoder layer usually has three important parts:
 
-**Projection lines:**
+1. attention
+2. MLP
+3. normalization
 
-- **`q_proj: 4096 → 4096`** — maps hidden states to **query** vectors (full width here).  
-- **`k_proj` and `v_proj: 4096 → 1024`** — **Key** and **value** projections to a **smaller width** than queries.
+Let us look at each one slowly.
 
-**Why are K and V smaller than Q here?**  
-This pattern matches **grouped-query attention (GQA)** / **multi-query** style designs: many queries share fewer key/value heads to **save memory and speed** during autoregressive decoding. Exact ratios depend on architecture version; the **principle** is “not always identical Q/K/V dimensions.”
+## Step 6: Attention
 
-- **`o_proj: 4096 → 4096`** — **output projection** mixes attention head outputs back into the model’s hidden width.
+Attention helps each token look at other useful tokens that came before it.
 
-- **`rotary_emb`** — **Rotary Position Embeddings (RoPE)** bake **position information** into Q and K without adding a separate big positional embedding table the way earliest transformers did.
+This is how the model connects ideas across a sentence or across many sentences.
 
----
+In the printed model, you may see names like:
 
-#### `mlp: LlamaMLP` — the feed-forward block
+- `q_proj`
+- `k_proj`
+- `v_proj`
+- `o_proj`
 
-Llama uses a **gated** feed-forward structure (often called **SwiGLU** in papers):
+At a beginner level, you do not need to memorize the math.
+Just remember:
 
-- **`gate_proj` and `up_proj`** — two different linear expansions from hidden size **4096** to an **inner** dimension **14336** (expansion ratio is a design choice).  
-- **`act_fn: SiLU`** — nonlinearity applied in the gating pathway.  
-- **`down_proj: 14336 → 4096`** — projects back to residual stream width so the block can add back into the main signal.
+- attention compares tokens
+- attention helps the model decide what matters
+- attention mixes useful information into the current token
 
-**Intuition:** MLP lets each token **privately** transform its vector after attention mixed information across tokens.
+## Step 7: Why some attention names have "proj"
 
----
+The word `proj` means projection.
+These are linear steps that change one vector into another form the model needs.
 
-#### `input_layernorm` and `post_attention_layernorm` — `LlamaRMSNorm`
+For example:
 
-**RMSNorm** (Root Mean Square normalization) stabilizes magnitudes **without** the extra mean-centering step of classic LayerNorm. There is one norm before attention and one before the MLP—this matches the **Pre-LN** transformer pattern used in Llama.
+- queries help ask "what should I look for?"
+- keys help describe "what information is here?"
+- values hold the information that can be passed forward
 
----
+This is the simple mental model behind Q, K, and V.
 
-### Final `norm: LlamaRMSNorm` on `LlamaModel`
+## Step 8: MLP
 
-One more normalization after the last decoder block, before logits.
+MLP stands for multi-layer perceptron.
 
----
+After attention shares information between tokens, the MLP processes each token's vector more deeply.
 
-### `lm_head: Linear(4096, 128256)`
+In the printed model, you may see names like:
 
-**What it is:** The **unembedding** step: turn each position’s final **4096-D** hidden vector into **128256** scores—one score per vocabulary token—for **next-token prediction**.
+- `gate_proj`
+- `up_proj`
+- `down_proj`
+- `act_fn`
 
-**Bias False:** no per-output bias vector; common in many LLM heads.
+You can think of the MLP as the part that reshapes and refines what the model now knows.
 
-**Tie-in:** In some implementations, weights can be **tied** (shared) with `embed_tokens` to save parameters; whether printing shows that depends on version. Conceptually, `embed_tokens` and `lm_head` are inverses across the hidden width.
+## Step 9: Why the activation function matters
 
----
+In the printed Llama model, the activation function is often `SiLU`.
 
-## Part D — How this connects to Day 4 code
+Why does that matter?
 
-1. `tokenizer.apply_chat_template(...)` builds the **prompt token IDs**.  
-2. `embed_tokens` converts those IDs to vectors.  
-3. The **stack of decoder layers** updates those vectors.  
-4. `lm_head` produces logits; **`generate`** applies sampling or greedy picking repeatedly.
+If a model used only simple linear steps, it would be much less flexible.
+The activation function helps the model learn richer and more complex patterns.
 
-When you print `model` in the notebook, you are seeing the **static architecture**. When you call `model.generate`, you are running **forward passes** through that graph.
+So when you see `act_fn`, it is not just a small detail.
+It is one reason the model can do more than a simple linear system.
 
----
+## Step 10: Normalization
 
-## Part E — Recap checklist
+You may also see:
 
-You can now:
+- `input_layernorm`
+- `post_attention_layernorm`
+- `norm`
 
-- Name the two big halves of each decoder layer (**attention** vs **MLP**) and why **SiLU** appears.  
-- Explain **embeddings** vs **`lm_head`** as opposites across the hidden dimension.  
-- Recognize **RoPE** and why K/V projections may be narrower than Q in some Llama variants.
+These normalization steps help keep the values in a stable range while the model runs.
 
----
+At this stage, the main point is simple:
+normalization helps the model stay stable and train or run better.
 
-## Next guide
+## Step 11: `lm_head`
 
-[10-meeting-minutes-audio-product.md](10-meeting-minutes-audio-product.md) applies similar loading patterns to a **speech → text → report** pipeline.
+`lm_head` is the last major block.
+
+It takes the final vector for each token position and turns it into scores over the vocabulary.
+Those scores help the model choose the next token.
+
+So the last step is:
+
+- hidden vector in
+- token scores out
+
+## Step 12: The full flow from prompt to answer
+
+Here is the whole picture:
+
+1. your prompt becomes token IDs
+2. `embed_tokens` turns them into vectors
+3. decoder layers process those vectors
+4. `lm_head` creates next-token scores
+5. generation picks a next token
+6. the process repeats until the answer is finished
+
+That is the simple story behind text generation.
+
+## What to remember
+
+- `embed_tokens` starts the model's internal representation.
+- Decoder layers do the main processing work.
+- Attention helps tokens use context from earlier tokens.
+- The MLP adds extra processing power after attention.
+- `lm_head` turns the final state into next-token choices.
