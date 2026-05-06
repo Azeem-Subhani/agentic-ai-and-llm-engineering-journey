@@ -14,13 +14,14 @@ The main material is a single guided lesson that turns short classroom notes int
 
 ## How to use this repository
 
-1. **Start here:** open the foundational course document:  
-   [`LLM Fundamentals & Engineering/foundations/getting-started/foundations.md`](LLM%20Fundamentals%20%26%20Engineering/foundations/getting-started/foundations.md)  
-   (If your file browser has trouble with the folder name, use your editor or Git to navigate into `LLM Fundamentals & Engineering`, then `foundations`, then `getting-started`, and open `foundations.md`.)
+1. **Module 01 — Foundations:** open [`LLM Fundamentals & Engineering/01-foundations/getting-started/foundations.md`](LLM%20Fundamentals%20%26%20Engineering/01-foundations/getting-started/foundations.md) and read from the top.  
+   (If your file browser has trouble with the folder name, open `LLM Fundamentals & Engineering`, then `01-foundations`, `getting-started`, and `foundations.md`.)
 
-2. **Optional context:** [`notes.md`](notes.md) is the original, shorter course log. The guided document builds on and answers the questions from those notes. You can keep `notes.md` as a quick checklist.
+2. **Module 01 — Tool calling (hands-on):** flight-agent demo — [`LLM Fundamentals & Engineering/01-foundations/tool-calling/readme.md`](LLM%20Fundamentals%20%26%20Engineering/01-foundations/tool-calling/readme.md) (start with `readme.md`, then run `tool_calling.py`).
 
-3. **Week 2 (hands-on):** tool calling with a flight-agent demo — [`LLM Fundamentals & Engineering/foundations/tool-calling/readme.md`](LLM%20Fundamentals%20%26%20Engineering/foundations/tool-calling/readme.md) (start with `readme.md`, then run `tool_calling.py`).
+3. **Module 02 — Open source models:** start at [`LLM Fundamentals & Engineering/02-open-source-models/documentation/README.md`](LLM%20Fundamentals%20%26%20Engineering/02-open-source-models/documentation/README.md) and follow the numbered guides in order.
+
+4. **Module 03 — Model selection, evaluation, and commercial practice:** start at [`LLM Fundamentals & Engineering/03-model-selection-evaluation-and-commercial-practice/README.md`](LLM%20Fundamentals%20%26%20Engineering/03-model-selection-evaluation-and-commercial-practice/README.md). Optional raw capture + expanded guides: [`LLM Fundamentals & Engineering/03-model-selection-evaluation-and-commercial-practice/notes.md`](LLM%20Fundamentals%20%26%20Engineering/03-model-selection-evaluation-and-commercial-practice/notes.md) and [`LLM Fundamentals & Engineering/03-model-selection-evaluation-and-commercial-practice/documentation/README.md`](LLM%20Fundamentals%20%26%20Engineering/03-model-selection-evaluation-and-commercial-practice/documentation/README.md). Optional hands-on: [`LLM Fundamentals & Engineering/03-model-selection-evaluation-and-commercial-practice/code-translation/readme.md`](LLM%20Fundamentals%20%26%20Engineering/03-model-selection-evaluation-and-commercial-practice/code-translation/readme.md).
 
 ## Optional setup (for hands-on parts later)
 
@@ -28,4 +29,4 @@ Some lessons may mention **local models** (for example Ollama), a **Python** env
 
 ---
 
-*Welcome to the journey—open `foundations.md` and go in order from the top.*
+*Welcome to the journey—open `foundations.md` in module 01 and go in order from the top.*
