@@ -1,102 +1,244 @@
-# 09 — The Gradio applications
+# 09 - The Gradio Applications
 
-## What this guide is about
+## Why The Apps Exist
 
-Two UIs ship with this module:
+The module includes two Gradio apps:
 
-1. **`app.py`** — chat with the baseline assistant while viewing retrieved chunks.
-2. **`evaluator.py`** — batch-run retrieval metrics and answer-judge metrics with charts.
+1. [`app.py`](../rag-system/app.py) for interactive chat.
+2. [`evaluator.py`](../rag-system/evaluator.py) for evaluation dashboards.
 
-## Chat app (`app.py`)
+These apps are not separate RAG systems. They are user interfaces around the same baseline code explained earlier.
 
-### Flow
+## App 1: Chat UI
+
+[`app.py`](../rag-system/app.py) imports:
+
+```python
+from implementation.answer import answer_question
+```
+
+That single import is the key connection. The chat app uses the baseline `answer_question()` function from guide 05.
+
+## Chat UI Flow
 
 ```mermaid
 sequenceDiagram
     participant User
-    participant Gradio
-    participant answer_question
-    participant Chroma
-    participant OpenAI
+    participant Gradio as app.py
+    participant Answer as implementation.answer
+    participant Chroma as vector_db
+    participant LLM as ChatOpenAI
 
-    User->>Gradio: message.submit
-    Gradio->>answer_question: last user text + prior history
-    answer_question->>Chroma: retriever.invoke(combined_question)
-    Chroma-->>answer_question: top-k Documents
-    answer_question->>OpenAI: chat.completions with system+history
-    OpenAI-->>answer_question: assistant text
-    answer_question-->>Gradio: answer, docs
-    Gradio-->>User: updated chat + HTML context panel
+    User->>Gradio: submits message
+    Gradio->>Gradio: append user message to history
+    Gradio->>Answer: answer_question(last_message, prior)
+    Answer->>Chroma: retrieve top-k chunks
+    Chroma-->>Answer: Document list
+    Answer->>LLM: system prompt with context + history + question
+    LLM-->>Answer: answer text
+    Answer-->>Gradio: answer, context docs
+    Gradio-->>User: updated chat and context panel
 ```
 
-### Run it
+## `put_message_in_chatbot()`
+
+Inside `main()`, this helper takes textbox input and adds it to the Gradio chat history:
+
+```python
+def put_message_in_chatbot(message, history):
+    return "", history + [{"role": "user", "content": message}]
+```
+
+What enters:
+
+- `message`: the latest text from the user,
+- `history`: existing chat messages.
+
+What exits:
+
+- empty string to clear the textbox,
+- updated chat history containing the new user message.
+
+## `chat(history)`
+
+```python
+def chat(history):
+    last_message = history[-1]["content"]
+    prior = history[:-1]
+    answer, context = answer_question(last_message, prior)
+    history.append({"role": "assistant", "content": answer})
+    return history, format_context(context)
+```
+
+This is where the UI calls the RAG pipeline.
+
+Step by step:
+
+1. Pull the latest user message from the history.
+2. Treat all earlier messages as prior conversation.
+3. Call `answer_question()`.
+4. Append the assistant answer to the chat.
+5. Format retrieved chunks for the side panel.
+
+## `format_context(context)`
+
+The chat app does something very useful for learning: it shows the retrieved chunks.
+
+```python
+for doc in context:
+    result += f"Source: {doc.metadata['source']}"
+    result += doc.page_content
+```
+
+This panel is a debugging tool. If the assistant gives a bad answer, look at the retrieved context first:
+
+- If the right evidence is missing, retrieval failed.
+- If the right evidence is present but the answer is wrong, prompting or generation failed.
+
+## Running The Chat App
+
+First run baseline ingest if needed:
 
 ```bash
-cd rag-system
+python -m implementation.ingest
+```
+
+Then start the app:
+
+```bash
 python app.py
 ```
 
-**Example output (terminal):**
+Example terminal output:
 
 ```text
 Running on local URL:  http://127.0.0.1:7860
 ```
 
-What this output tells you: a browser tab should open; if not, visit the printed URL.
+If the browser does not open automatically, open the printed local URL.
 
-### What you should see in the UI (text description)
+## What You Should See
 
-- **Left column**: chat messages (user + assistant).
-- **Right column**: HTML titled **Relevant context** listing each chunk’s `metadata['source']` followed by chunk text — this is the output of `format_context()` in `app.py`.
+The UI has two main regions:
 
-### Code hook — where retrieval happens
+| Region | Purpose |
+|--------|---------|
+| Conversation | User and assistant messages. |
+| Retrieved context | Source paths and chunk text used for the latest answer. |
 
-`app.py` imports `answer_question` from `implementation.answer` — the same function used by evaluation, so the UI matches the harness.
+Do not ignore the context panel. It is the fastest way to understand how retrieval affects the answer.
 
-## Evaluation dashboard (`evaluator.py`)
+## App 2: Evaluation Dashboard
 
-### Run it
+[`evaluator.py`](../rag-system/evaluator.py) imports:
+
+```python
+from evaluation.eval import evaluate_all_answers, evaluate_all_retrieval
+```
+
+So the dashboard is a visual wrapper around the evaluation code from guides 07 and 08.
+
+## Evaluation Dashboard Flow
+
+```mermaid
+flowchart TD
+    Button1[Run retrieval evaluation] --> R[run_retrieval_evaluation]
+    R --> RAll[evaluate_all_retrieval]
+    RAll --> RCards[MRR, nDCG, coverage cards]
+    RAll --> RChart[Average MRR by category]
+
+    Button2[Run answer evaluation] --> A[run_answer_evaluation]
+    A --> AAll[evaluate_all_answers]
+    AAll --> ACards[Accuracy, completeness, relevance cards]
+    AAll --> AChart[Average accuracy by category]
+```
+
+## Retrieval Button
+
+`run_retrieval_evaluation()` loops through every test:
+
+```python
+for test, result, prog_value in evaluate_all_retrieval():
+    total_mrr += result.mrr
+    total_ndcg += result.ndcg
+    total_coverage += result.keyword_coverage
+    category_mrr[test.category].append(result.mrr)
+```
+
+It produces:
+
+- average MRR,
+- average nDCG,
+- average keyword coverage,
+- a bar chart of average MRR by category.
+
+## Answer Button
+
+`run_answer_evaluation()` loops through every test and runs the judge:
+
+```python
+for test, result, prog_value in evaluate_all_answers():
+    total_accuracy += result.accuracy
+    total_completeness += result.completeness
+    total_relevance += result.relevance
+    category_accuracy[test.category].append(result.accuracy)
+```
+
+It produces:
+
+- average accuracy,
+- average completeness,
+- average relevance,
+- a bar chart of average accuracy by category.
+
+Because it calls the answer model and judge model for every test, answer evaluation is slower and more expensive than retrieval evaluation.
+
+## Traffic-Light Colors
+
+At the top of `evaluator.py`, constants define thresholds:
+
+```python
+MRR_GREEN = 0.9
+MRR_AMBER = 0.75
+ANSWER_GREEN = 4.5
+ANSWER_AMBER = 4.0
+```
+
+`get_color()` uses those thresholds to style metric cards as green, orange, or red.
+
+These colors are not magic. They are teaching thresholds. In production, thresholds should come from your quality targets and risk tolerance.
+
+## Running The Dashboard
 
 ```bash
-cd rag-system
 python evaluator.py
 ```
 
-**Example output (terminal):**
+Example terminal output:
 
 ```text
 Running on local URL:  http://127.0.0.1:7861
 ```
 
-What this output tells you: Gradio picked a port (7861 if 7860 is busy).
+Gradio may choose a different port if 7861 is busy.
 
-### What each button does
+## How To Use The Apps While Learning
 
-| Button | Backend function | Output widgets |
-|--------|------------------|----------------|
-| **Run retrieval evaluation** | `run_retrieval_evaluation` | HTML cards for MRR, nDCG, coverage + bar chart of MRR by category |
-| **Run answer evaluation** | `run_answer_evaluation` | HTML cards for accuracy/completeness/relevance + bar chart by category |
+1. Ask a question in `app.py`.
+2. Read the retrieved context panel before reading the answer.
+3. Run retrieval evaluation in `evaluator.py`.
+4. Look for weak categories.
+5. Change one retrieval setting at a time.
+6. Re-ingest if the setting affects stored chunks or embeddings.
+7. Re-run evaluation.
 
-### Sample HTML card (textual mock)
+This loop teaches cause and effect.
 
-When averages are good, the HTML might render like:
+## What To Remember
 
-```text
-Mean Reciprocal Rank (MRR)
-0.8124   (left border green)
-
-Normalized DCG (nDCG)
-0.9050   (left border green)
-
-Keyword Coverage
-88.5%    (left border orange)
-```
-
-What this output tells you: **traffic-light borders** encode thresholds defined at the top of `evaluator.py`.
-
-## What to remember
-
-- **Chat UI** = qualitative debugging (read the retrieved chunks!).
-- **Dashboard** = quantitative regression view across all 150 tests.
+- `app.py` is a UI around baseline `answer_question()`.
+- `evaluator.py` is a UI around baseline evaluation functions.
+- The context panel is for debugging retrieval.
+- Answer evaluation is slower because it generates answers and calls an LLM judge.
 
 Next: [`10-production-considerations-and-tradeoffs.md`](10-production-considerations-and-tradeoffs.md)

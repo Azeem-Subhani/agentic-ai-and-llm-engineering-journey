@@ -1,36 +1,75 @@
-# Module 04 — Retrieval-Augmented Generation (RAG)
+# Module 04 - Retrieval-Augmented Generation (RAG)
 
-This module teaches **Retrieval-Augmented Generation** from first principles: why plain LLMs are not enough, how embeddings and vector search work, how to build ingest + query pipelines, how to evaluate retrieval and answers, and what changes in a more “production-shaped” advanced stack.
+This module teaches Retrieval-Augmented Generation from first principles using a small but complete company assistant. The goal is not only to run a demo. The goal is to understand the whole machine: why RAG exists, how documents become searchable, how a question finds useful evidence, how that evidence enters the prompt, and how we measure whether the system worked.
 
-You work with a fictional company, **Insurellm**, and a structured **knowledge base** of Markdown files (company, products, contracts, employees). The runnable code lives under [`rag-system/`](rag-system/).
+You work with a fictional company, **Insurellm**, and a Markdown knowledge base containing company pages, product summaries, contracts, and employee records. The runnable system lives under [`rag-system/`](rag-system/).
 
-## What you will learn
+## What RAG Means
 
-- Why organizations add **retrieval** on top of an LLM (accuracy, freshness, control).
-- **Embeddings**, **chunking**, **vector databases**, and **similarity search**.
-- A **baseline RAG** path (LangChain + Chroma + OpenAI) used by the chat app and the evaluation harness.
-- An **advanced RAG** path (LLM chunking, query rewriting, dual retrieval, LLM reranking) in `pro_implementation/`.
-- **Evaluation**: keyword-based retrieval metrics and **LLM-as-a-judge** for answers.
-- **Tradeoffs** you hit when moving toward production (cost, latency, monitoring).
+A plain LLM answers from the information already inside the model plus whatever you put in the prompt. A RAG system adds a retrieval step before generation:
 
-## Repository layout
+1. Store your documents in a searchable form.
+2. Retrieve the few pieces most relevant to a user question.
+3. Put those pieces into the prompt as context.
+4. Ask the LLM to answer using that context.
+
+That turns the model from a closed-book answer generator into an open-book assistant.
+
+## What You Will Learn
+
+- Why organizations add retrieval to LLM systems for accuracy, freshness, and control.
+- What embeddings are, why vector databases exist, and how semantic similarity works.
+- Why documents are split into chunks before they are embedded.
+- How the baseline RAG system ingests Markdown into Chroma and answers questions with OpenAI.
+- How the advanced system uses LLM chunking, query rewriting, dual retrieval, and reranking.
+- How retrieval metrics and LLM-as-a-judge evaluate different parts of the pipeline.
+- What changes when a learning prototype moves toward production.
+
+## The Big Picture
+
+```mermaid
+flowchart LR
+    A[Markdown files in knowledge-base] --> B[Ingest]
+    B --> C[Chunks]
+    C --> D[Embeddings]
+    D --> E[Chroma vector database]
+    F[User question] --> G[Retrieve similar chunks]
+    E --> G
+    G --> H[Prompt with retrieved context]
+    H --> I[LLM answer]
+    I --> J[Evaluation and UI]
+```
+
+The important idea is that the LLM does not search your files by itself. The Python code searches first, then gives the model the retrieved text.
+
+## Repository Layout
 
 | Path | Role |
 |------|------|
-| [`documentation/`](documentation/) | Course-style Markdown guides (start in `documentation/README.md`). |
-| [`rag-system/implementation/`](rag-system/implementation/) | Baseline ingest + answer (`ingest.py`, `answer.py`). |
-| [`rag-system/pro_implementation/`](rag-system/pro_implementation/) | Advanced ingest + answer. |
-| [`rag-system/evaluation/`](rag-system/evaluation/) | `tests.jsonl` suite, `eval.py`, `test.py`. |
-| [`rag-system/examples/`](rag-system/examples/) | Small scripts that replace the old day-by-day notebooks. |
-| [`rag-system/knowledge-base/`](rag-system/knowledge-base/) | **Read-only** synthetic Markdown corpus. |
-| [`rag-system/app.py`](rag-system/app.py) | Gradio chat UI. |
-| [`rag-system/evaluator.py`](rag-system/evaluator.py) | Gradio evaluation dashboard. |
+| [`documentation/`](documentation/) | Course-style guides. Start with [`documentation/README.md`](documentation/README.md). |
+| [`rag-system/README.md`](rag-system/README.md) | Practical map of the runnable code. |
+| [`rag-system/knowledge-base/`](rag-system/knowledge-base/) | Source Markdown corpus. These files are the facts the assistant retrieves from. |
+| [`rag-system/implementation/`](rag-system/implementation/) | Baseline ingest and answer pipeline. Used by the chat app and default evaluation harness. |
+| [`rag-system/pro_implementation/`](rag-system/pro_implementation/) | Advanced ingest and answer pipeline. Separate from the baseline path. |
+| [`rag-system/evaluation/`](rag-system/evaluation/) | Test questions, retrieval metrics, and LLM judge code. |
+| [`rag-system/examples/`](rag-system/examples/) | Small progressive scripts aligned with the documentation. |
+| [`rag-system/app.py`](rag-system/app.py) | Gradio chat UI for the baseline assistant. |
+| [`rag-system/evaluator.py`](rag-system/evaluator.py) | Gradio dashboard for batch evaluation. |
+
+## Baseline Vs Advanced
+
+| System | Ingest command | Answer code | Database | Main purpose |
+|--------|----------------|-------------|----------|--------------|
+| Baseline | `python -m implementation.ingest` | `implementation/answer.py` | `vector_db/` | Teach the standard RAG loop clearly. |
+| Advanced | `python -m pro_implementation.ingest` | `pro_implementation/answer.py` | `preprocessed_db/` | Show production-shaped retrieval improvements. |
+
+The baseline is the main learning path. The advanced stack is a second architecture to compare against it.
 
 ## Prerequisites
 
-- Python **3.10+** recommended.
-- Modules **01–03** in this course (LLM basics, open models, selection/eval mindset) — not strictly required but helpful.
-- An **OpenAI API key** for embeddings and chat (`OPENAI_API_KEY` in a `.env` file inside `rag-system/` or your shell environment).
+- Python 3.10+ recommended.
+- An OpenAI API key for the baseline embeddings and chat calls.
+- Optional but helpful: earlier modules on LLM basics, model selection, and evaluation.
 
 ## Setup
 
@@ -47,9 +86,9 @@ Create `rag-system/.env`:
 OPENAI_API_KEY=sk-...
 ```
 
-## Typical workflow (baseline)
+## Typical Baseline Workflow
 
-All commands assume your shell is in **`rag-system/`**:
+All commands below assume your shell is inside `rag-system/`.
 
 ```bash
 cd rag-system
@@ -57,7 +96,9 @@ python -m implementation.ingest
 python app.py
 ```
 
-**Example output** from ingest (numbers depend on corpus size):
+`implementation.ingest` builds the searchable Chroma database. `app.py` starts the chat interface and calls the same answering code that the evaluator uses.
+
+Example ingest output:
 
 ```text
 Loaded 76 source documents
@@ -73,26 +114,30 @@ cd rag-system
 python evaluation/eval.py 0
 ```
 
-This prints retrieval metrics and runs one full **answer + judge** cycle for test row `0`.
+This runs one test row through two checks:
 
-## Progressive examples
+- Retrieval evaluation: did the retrieved chunks contain expected evidence keywords?
+- Answer evaluation: did the generated answer match the reference answer according to an LLM judge?
+
+## Progressive Examples
 
 | Script | Idea |
 |--------|------|
-| [`examples/01_keyword_retrieval_demo.py`](rag-system/examples/01_keyword_retrieval_demo.py) | Keyword overlap “retrieval” without vectors. |
-| [`examples/02_embeddings_and_visualization.py`](rag-system/examples/02_embeddings_and_visualization.py) | Chunk + embed + optional t-SNE plot. |
-| [`examples/03_basic_rag_demo.py`](rag-system/examples/03_basic_rag_demo.py) | One question through `answer_question`. |
-| [`examples/04_evaluation_demo.py`](rag-system/examples/04_evaluation_demo.py) | Load `tests.jsonl` and print retrieval metrics for row 0. |
-| [`examples/05_advanced_rag_demo.py`](rag-system/examples/05_advanced_rag_demo.py) | Advanced stack (needs `preprocessed_db`). |
+| [`examples/01_keyword_retrieval_demo.py`](rag-system/examples/01_keyword_retrieval_demo.py) | Starts with simple keyword overlap before embeddings. |
+| [`examples/02_embeddings_and_visualization.py`](rag-system/examples/02_embeddings_and_visualization.py) | Shows chunking, local embeddings, and optional t-SNE visualization. |
+| [`examples/03_basic_rag_demo.py`](rag-system/examples/03_basic_rag_demo.py) | Sends one question through the baseline `answer_question` function. |
+| [`examples/04_evaluation_demo.py`](rag-system/examples/04_evaluation_demo.py) | Prints retrieval metrics for one test row. |
+| [`examples/05_advanced_rag_demo.py`](rag-system/examples/05_advanced_rag_demo.py) | Demonstrates query rewriting, dual retrieval, and reranking. |
 
-## Reading order
+## Recommended Reading Path
 
-Open **[`documentation/README.md`](documentation/README.md)** for the numbered reading path, glossary, and how each guide maps to code.
+Open [`documentation/README.md`](documentation/README.md) first. It now includes a course map, a file map, and a guided path from basic ideas to implementation details.
 
-## What to remember
+## What To Remember
 
-- **RAG** = retrieve trustworthy text, then let the LLM **read** it while answering.
-- The **baseline** stack is what the shipped **eval harness** measures by default.
-- The **advanced** stack is a second architecture to study; wiring it into `evaluation/eval.py` is left as an optional exercise.
+- RAG is a pipeline, not a single model call.
+- Ingest happens before users ask questions; retrieval and generation happen at question time.
+- The baseline stack is what `app.py`, `evaluator.py`, and `evaluation/eval.py` use by default.
+- The advanced stack is separate, so changing it will not change baseline evaluation results unless you rewire the imports.
 
 Next: [`documentation/README.md`](documentation/README.md)

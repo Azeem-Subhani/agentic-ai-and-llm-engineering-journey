@@ -1,105 +1,135 @@
-# 02 — Embeddings and vector databases
+# 02 - Embeddings And Vector Databases
 
-## What this guide is about
+## Why This Topic Exists
 
-You will learn what an **embedding** is without linear algebra prerequisites, why **vector databases** exist, and how this module stores chunks in **Chroma**.
+Keyword search only works when the user's words overlap with the document's words. Real users paraphrase. They say "auto policy" when the document says "Carllm", or "who handles brand?" when the profile says "Head of Brand Strategy".
 
-## What is an embedding?
+Embeddings help the system search by meaning instead of exact words.
 
-An **embedding** is a **list of numbers** (a **vector**) produced by a model that was trained so that:
+## What Is An Embedding?
 
-- similar sentences end up with **similar** vectors,
-- unrelated sentences end up **far apart**.
+An embedding is a list of numbers that represents the meaning of a piece of text.
 
-Think of it as turning text into GPS coordinates in a high-dimensional space: “close” means “similar meaning,” not “similar spelling.”
+For example:
 
-### Inspect one embedding (OpenAI)
+```text
+"car insurance pricing"  ->  [0.02, -0.11, 0.43, ...]
+"automobile policy cost" ->  [0.03, -0.10, 0.41, ...]
+"cake recipe"           ->  [-0.55, 0.08, 0.12, ...]
+```
 
-After you configure `OPENAI_API_KEY`, you can print the first few dimensions:
+The exact numbers are not meant to be read by humans. Their purpose is distance. Texts with similar meanings should have vectors that are close to each other.
+
+Analogy: a map. You do not need to memorize every coordinate. You only need to know that nearby coordinates represent nearby places.
+
+## Embeddings In This Module
+
+The baseline code uses OpenAI's `text-embedding-3-large` model:
+
+- Ingest: [`implementation/ingest.py`](../rag-system/implementation/ingest.py) embeds each chunk before storing it.
+- Answering: [`implementation/answer.py`](../rag-system/implementation/answer.py) embeds the user query during retrieval.
+
+The model returns 3072 numbers for each text input. That is why ingest prints output like:
+
+```text
+There are 432 vectors with 3,072 dimensions in the vector store
+```
+
+That means the database contains 432 chunk vectors, and each vector has 3072 numeric dimensions.
+
+## Inspect One Embedding
+
+After setting `OPENAI_API_KEY`, you can run a small check:
 
 ```python
-import os
 from dotenv import load_dotenv
 from openai import OpenAI
 
 load_dotenv()
 client = OpenAI()
-resp = client.embeddings.create(model="text-embedding-3-large", input="Insurellm sells insurance software.")
-vec = resp.data[0].embedding
-print("dimensions:", len(vec))
-print("first 8 values:", [round(x, 5) for x in vec[:8]])
+
+response = client.embeddings.create(
+    model="text-embedding-3-large",
+    input="Insurellm sells insurance software.",
+)
+
+vector = response.data[0].embedding
+print("dimensions:", len(vector))
+print("first 8 values:", [round(x, 5) for x in vector[:8]])
 ```
 
-**Example output:**
+Example output:
 
 ```text
 dimensions: 3072
-first 8 values: [-0.02137, 0.01452, -0.00391, 0.00814, -0.01022, 0.00456, -0.00188, 0.01290]
+first 8 values: [-0.02137, 0.01452, -0.00391, 0.00814, -0.01022, 0.00456, -0.00188, 0.0129]
 ```
 
-What this output tells you: one short sentence became **3072** floats — that is the shape of `text-embedding-3-large` in this project.
+Do not attach meaning to a single dimension. The useful meaning comes from the whole vector and how it compares to other vectors.
 
-## Why similar text “clusters”
+## Semantic Similarity
 
-If you embed two phrases:
+Semantic similarity means similarity of meaning.
 
-```python
-from openai import OpenAI
-from dotenv import load_dotenv
-import math
+In vector search, a query is embedded into the same kind of vector as the stored chunks. The system then asks: which stored vectors are closest to this query vector?
 
-load_dotenv()
-client = OpenAI()
-model = "text-embedding-3-large"
-
-def emb(text: str):
-    return client.embeddings.create(model=model, input=text).data[0].embedding
-
-def cosine_sim(a, b):
-    dot = sum(x * y for x, y in zip(a, b))
-    na = math.sqrt(sum(x * x for x in a))
-    nb = math.sqrt(sum(y * y for y in b))
-    return dot / (na * nb)
-
-t1 = "car insurance pricing"
-t2 = "automobile policy premiums"
-t3 = "chocolate cake recipe"
-v1, v2, v3 = emb(t1), emb(t2), emb(t3)
-print("sim(t1,t2) =", round(cosine_sim(v1, v2), 4))
-print("sim(t1,t3) =", round(cosine_sim(v1, v3), 4))
+```mermaid
+flowchart LR
+    A[Question text] --> B[Embedding model]
+    B --> C[Question vector]
+    D[Stored chunk vectors] --> E[Similarity search]
+    C --> E
+    E --> F[Closest chunks]
 ```
 
-**Example output:**
+The distance calculation is usually cosine similarity or a related vector distance. You do not need deep linear algebra to use it. The main idea is:
 
-```text
-sim(t1,t2) = 0.8421
-sim(t1,t3) = 0.1124
-```
+- close vectors usually mean related text,
+- far vectors usually mean unrelated text.
 
-What this output tells you: **paraphrases** about the same topic score higher than a random unrelated sentence — that is the property retrieval relies on.
+## What A Vector Database Stores
 
-## What a vector database does
+A vector database stores rows shaped like this:
 
-Once every chunk has a vector, a **vector database**:
+| Field | Meaning |
+|-------|---------|
+| `id` | A unique row identifier. |
+| `embedding` | The numeric vector. |
+| `document` or `page_content` | The chunk text to show the LLM later. |
+| `metadata` | Extra information such as source file and document type. |
 
-1. stores `(chunk_text, vector, metadata)` tuples,
-2. answers queries like “give me the **k** chunks whose vectors are closest to this question vector.”
+The metadata matters because it lets you debug answers. If a retrieved chunk is wrong, you can see which file it came from.
 
-Analogy: a library sorted not alphabetically, but by **meaning** — “books near this question.”
+## Why Chroma Is Used Here
 
-## Why Chroma here
+This module uses Chroma because it is simple to run locally and persists to a folder:
 
-**Chroma** is an embedded vector store with a simple Python API and a **persistent directory** (`vector_db/` or `preprocessed_db/`). It is enough for learning and many prototypes. In production you might choose managed services (Pinecone, Weaviate, pgvector, etc.) — tradeoffs appear in guide 10.
+- baseline database: `rag-system/vector_db/`,
+- advanced database: `rag-system/preprocessed_db/`.
 
-## Baseline ingest creates vectors (LangChain + Chroma)
+Chroma is not the only option. Production systems may use pgvector, Pinecone, Weaviate, Elasticsearch/OpenSearch hybrid retrieval, or a managed cloud search system. For learning, Chroma keeps the storage layer easy to inspect and reset.
 
-From `rag-system/`:
+## How Baseline Ingest Creates Vectors
+
+Run from `rag-system/`:
 
 ```bash
 python -m implementation.ingest
 ```
 
-**Example output:**
+The code path is:
+
+```mermaid
+flowchart LR
+    A[fetch_documents] --> B[create_chunks]
+    B --> C[OpenAIEmbeddings]
+    C --> D[Chroma.from_documents]
+    D --> E[vector_db]
+```
+
+`OpenAIEmbeddings(model=EMBEDDING_MODEL)` creates the embedding client. `Chroma.from_documents(...)` embeds the chunks and persists them.
+
+Example output:
 
 ```text
 Loaded 76 source documents
@@ -108,18 +138,17 @@ There are 432 vectors with 3,072 dimensions in the vector store
 Ingestion complete
 ```
 
-What this output tells you: every chunk is embedded with **`text-embedding-3-large`** (3072-D) and stored in Chroma under `rag-system/vector_db/`.
+## Local Embeddings Demo
 
-## Optional: local embeddings + t-SNE demo
+[`examples/02_embeddings_and_visualization.py`](../rag-system/examples/02_embeddings_and_visualization.py) uses `sentence-transformers/all-MiniLM-L6-v2`, a smaller local embedding model. It is useful for learning because you can see embeddings without calling the OpenAI embeddings API.
 
-[`rag-system/examples/02_embeddings_and_visualization.py`](../rag-system/examples/02_embeddings_and_visualization.py) uses **`sentence-transformers/all-MiniLM-L6-v2`** (smaller, runs locally) and can save a 2D scatter plot.
+Run:
 
 ```bash
-cd rag-system
 python examples/02_embeddings_and_visualization.py
 ```
 
-**Example output:**
+Example output:
 
 ```text
 Loading Markdown from: .../rag-system/knowledge-base
@@ -131,12 +160,23 @@ First 8 values of one vector: [0.0312, -0.1204, 0.0088, ...]
 Saved t-SNE plot to: .../rag-system/examples/_tsne_demo.png
 ```
 
-What this output tells you: a **smaller** embedding model trades some quality for **speed and cost** — a common engineering decision.
+The local model returns 384-dimensional vectors, not 3072-dimensional vectors. Different embedding models have different vector sizes, costs, speed, and quality.
 
-## What to remember
+## Important Distinction
 
-- An **embedding** is a numeric fingerprint of meaning.
-- A **vector database** finds the nearest neighbors in that space.
-- This module’s **baseline** embeddings are OpenAI **`text-embedding-3-large`**; demos may use MiniLM locally.
+Embeddings do not generate answers. They only help find relevant text.
+
+| Component | Job |
+|-----------|-----|
+| Embedding model | Convert text into vectors for search. |
+| Vector database | Store vectors and return nearby chunks. |
+| Chat model | Read retrieved context and write the final answer. |
+
+## What To Remember
+
+- Embeddings turn text into numeric vectors that preserve useful meaning.
+- Vector search retrieves chunks by semantic similarity, not exact word overlap.
+- Chroma stores chunk text, vectors, and metadata so the answering step can recover the actual text.
+- The baseline uses OpenAI embeddings; the examples also show a smaller local model for learning.
 
 Next: [`03-chunking-strategies.md`](03-chunking-strategies.md)
