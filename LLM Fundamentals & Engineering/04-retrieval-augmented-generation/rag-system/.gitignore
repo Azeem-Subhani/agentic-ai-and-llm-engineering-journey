@@ -1,0 +1,6 @@
+vector_db/
+preprocessed_db/
+__pycache__/
+*.pyc
+examples/_tsne_demo.png
+.DS_Store
